@@ -8,6 +8,7 @@ const errorHandler = require("./middlewares/errorHandlerMiddleware");
 const {connectDB, sequelize} = require("./config/db");
 const adminRoutes = require("./routes/adminRoutes");
 const productRoutes = require("./routes/productRoutes");
+const orderRoutes = require("./routes/orderRoutes");
 
 
 const app = express();
@@ -17,6 +18,7 @@ app.use(express.urlencoded({extended: true}));
 
 app.use("/admin", adminRoutes);
 app.use("/products", productRoutes);
+app.use("/orders", orderRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 app.use(errorHandler);
