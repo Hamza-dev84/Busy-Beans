@@ -1,12 +1,12 @@
 
-const {DataTypes} = require("sequelize");
-const {sequelize} = require("../config/db");
+const { DataTypes } = require("sequelize");
+const { sequelize } = require("../config/db");
 
 const Order = sequelize.define("order", {
     id: {
         type: DataTypes.INTEGER,
         autoIncrement: true,
-        primaryKey: true 
+        primaryKey: true
     },
 
     companyName: {
@@ -28,7 +28,7 @@ const Order = sequelize.define("order", {
             }
         }
     },
-    
+
     address: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -84,11 +84,21 @@ const Order = sequelize.define("order", {
         allowNull: false
     },
 
+    currentStatus: {
+        type: DataTypes.ENUM(
+            "order_placed",
+            "dispatched_to_supplier",
+            "supplier_acknowledged",
+            "shipped"
+        ),
+        defaultValue: "order_placed"
+    },
+
     status: {
         type: DataTypes.ENUM("pending", "completed", "cancelled"),
         defaultValue: "pending"
     }
 
-}, {timestamps: true});
+}, { timestamps: true });
 
 module.exports = Order;
