@@ -11,6 +11,7 @@ const adminRoutes = require("./routes/adminRoutes");
 const productRoutes = require("./routes/productRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const orderTrackingRoutes = require("./routes/orderTrackingRoutes");
+const localPartnerRoutes = require("./routes/localPartner");
 
 const app = express();
 app.use(cors());
@@ -22,6 +23,7 @@ app.use("/admin", adminRoutes);
 app.use("/products", productRoutes);
 app.use("/orders", orderRoutes);
 app.use("/orders", orderTrackingRoutes);
+app.use("/partners", localPartnerRoutes);
 
 app.use(errorHandler);
 
