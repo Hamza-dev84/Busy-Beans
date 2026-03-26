@@ -14,24 +14,7 @@ const OrderTracking = sequelize.define("order_tracking", {
     ),
     allowNull: false,
   },
-  timestamp: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
-    get() {
-      const value = this.getDataValue("timestamp");
-      if (!value) return null;
-      return new Date(value).toLocaleString("en-PK", {
-        timeZone: "Asia/Karachi",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true,
-      });
-    },
-  },
+  timestamp: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
 }, { timestamps: false });
 
 module.exports = OrderTracking;
