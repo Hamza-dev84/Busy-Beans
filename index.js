@@ -12,6 +12,7 @@ const productRoutes = require("./routes/productRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const orderTrackingRoutes = require("./routes/orderTrackingRoutes");
 const localPartnerRoutes = require("./routes/localPartner");
+const customerRoutes = require("./routes/customerRoutes");
 
 const app = express();
 app.use(cors());
@@ -24,6 +25,7 @@ app.use("/products", productRoutes);
 app.use("/orders", orderRoutes);
 app.use("/orders", orderTrackingRoutes);
 app.use("/partners", localPartnerRoutes);
+app.use("/customer", customerRoutes);
 
 app.use(errorHandler);
 
