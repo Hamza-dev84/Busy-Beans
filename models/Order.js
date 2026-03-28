@@ -9,34 +9,9 @@ const Order = sequelize.define("order", {
         primaryKey: true
     },
 
-    companyName: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        validate: {
-            notNull: {
-                msg: "Company name cannot be empty"
-            }
-        }
-    },
-
-    email: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        validate: {
-            notNull: {
-                msg: "Email cannot be empty"
-            }
-        }
-    },
-
-    address: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        validate: {
-            notNull: {
-                msg: "Address cannot be empty"
-            }
-        }
+    customerId: {
+        type: DataTypes.INTEGER,
+        allowNull: false
     },
 
     paymentMethod: {

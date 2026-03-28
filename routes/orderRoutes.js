@@ -1,12 +1,11 @@
 
 const express = require("express");
 const router = express.Router();
-
+const {createOrder, getAllOrders, getOrder, deleteOrder} =  require("../controllers/orderController");
 const protect = require("../middlewares/authMiddleware");
-const { createOrder, getAllOrders, getOrder,deleteOrder } = 
-require("../controllers/orderController");
+const customerProtect = require("../middlewares/customerAuthMiddleware");
 
-router.post("/", protect, createOrder);
+router.post("/", customerProtect, createOrder);
 router.get("/", protect, getAllOrders);
 router.get("/:id", protect, getOrder);
 router.delete("/:id", protect, deleteOrder);
