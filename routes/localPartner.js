@@ -5,10 +5,11 @@ const router = express.Router();
 const { getAllPartners, addPartner, editPartner, toggleStatus, deletePartner }= 
 require("../controllers/localPartnerController");
 const protect = require("../middlewares/authMiddleware");
+const upload = require("../middlewares/upload");
 
 router.get("/", protect, getAllPartners);
-router.post("/", protect, addPartner);
-router.put("/:id", protect, editPartner);
+router.post("/", protect, upload.single("image") ,addPartner);
+router.put("/:id", protect, upload.single("imgage") ,editPartner);
 router.patch("/:id/status", protect, toggleStatus);
 router.delete("/:id", protect, deletePartner);
 
