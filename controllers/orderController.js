@@ -10,8 +10,10 @@ const createOrder = asyncWrapper(async (req, res) => {
     const customer = req.customer;
 
     if (!customer) return errorResponse({ res, message: "Customer not authenticated", status: 401 });
-    if (!paymentMethod || !orderFrequency) return errorResponse({ res, message: "paymentMethod and orderFrequency are required", status: 400 });
-    if (!Array.isArray(items) || items.length === 0) return errorResponse({ res, message: "At least one item is required", status: 400 });
+    if (!paymentMethod || !orderFrequency) return errorResponse({ 
+        res, message: "paymentMethod and orderFrequency are required", status: 400 });
+    if (!Array.isArray(items) || items.length === 0) return errorResponse({ 
+        res, message: "At least one item is required", status: 400 });
 
     let subtotal = 0;
 

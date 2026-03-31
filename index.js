@@ -13,6 +13,7 @@ const orderRoutes = require("./routes/orderRoutes");
 const orderTrackingRoutes = require("./routes/orderTrackingRoutes");
 const localPartnerRoutes = require("./routes/localPartner");
 const customerRoutes = require("./routes/customerRoutes");
+const invoiceRoutes = require("./routes/invoiceRoutes");
 
 const app = express();
 app.use(cors());
@@ -26,6 +27,7 @@ app.use("/orders", orderRoutes);
 app.use("/orders", orderTrackingRoutes);
 app.use("/partners", localPartnerRoutes);
 app.use("/customer", customerRoutes);
+app.use("/invoice", invoiceRoutes);
 
 app.use(errorHandler);
 

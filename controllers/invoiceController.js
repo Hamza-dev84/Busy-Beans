@@ -17,36 +17,27 @@ const sendInvoiceEmail = async (toEmail, invoice) => {
     to: toEmail,
     subject: `Invoice ${invoice.invoiceNumber} - Busy Bean Coffee`,
     text: `
-  Invoice Number: ${invoice.invoiceNumber}
-  Company: ${invoice.companyName}
-  Invoice Date: ${invoice.invoiceDate}
-  Amount: $${invoice.totalUSD}
-  Shipping Charges: $${invoice.shippingCharges}
-  Terms: ${invoice.terms} days
-  Comments: ${invoice.comments || "N/A"}
+Invoice Number: ${invoice.invoiceNumber}
+Company: ${invoice.companyName}
+Invoice Date: ${invoice.invoiceDate}
+Amount: $${invoice.totalUSD}
+Shipping Charges: $${invoice.shippingCharges}
+Terms: ${invoice.days} days
+Comments: ${invoice.comments || "N/A"}
 
-  Thank you for your business!
-  Busy Bean Coffee
+Thank you for your business!
+Busy Bean Coffee
     `,
   });
 };
 
-
 const createInvoice = asyncWrapper(async (req, res) => {
   const {
-    companyName, email, address, paymentMethod, note, purchaseOrderNumber,
-    invoiceTo, invoiceNumber, poNumber, invoiceDate, terms,
+    companyName, email, address, paymentMethod,
+    noteForSupplier, purchaseOrderNumber,
+    invoiceNumber, PO_number, invoiceDate, days,
     items, shippingCharges, comments, emailToCustomer,
   } = req.body;
-
-  if (!companyName || !email || !address || !paymentMethod || !invoiceTo || !invoiceNumber || !invoiceDate) {
-    return errorResponse({ res, message: "companyName, email, address, paymentMethod, invoiceTo, invoiceNumber, invoiceDate are required", status: 400 });
-  }
-
-  if (!items || items.length === 0) {
-    return errorResponse({ res, message: "At least one item is required", status: 400 });
-  }
-
 
   let totalUSD = 0;
   const invoiceItems = items.map((item) => {
@@ -66,12 +57,11 @@ const createInvoice = asyncWrapper(async (req, res) => {
 
   const invoice = await Invoice.create({
     companyName, email, address, paymentMethod,
-    note: note || null,
-    purchaseOrderNumber: purchaseOrderNumber || null,
-    invoiceTo, invoiceNumber,
-    poNumber: poNumber || null,
+    noteForSupplier: noteForSupplier || null,       
+    invoiceNumber,
+    PO_number: PO_number || null,                  
     invoiceDate,
-    terms: terms || null,
+    days,                                            
     shippingCharges: finalShipping,
     totalUSD,
     comments: comments || null,
@@ -92,34 +82,31 @@ const createInvoice = asyncWrapper(async (req, res) => {
     include: [{ model: InvoiceItem, as: "items" }],
   });
 
-  return successResponse({ res, message: "Invoice created successfully", data: fullInvoice, status: 201 });
+  return successResponse({ res, data: fullInvoice, message: "Invoice created successfully", status: 201 });
 });
-
 
 const getAllInvoices = asyncWrapper(async (req, res) => {
   const invoices = await Invoice.findAll({
     include: [{ model: InvoiceItem, as: "items" }],
     order: [["createdAt", "DESC"]],
   });
-  return successResponse({ res, message: "Invoices fetched", data: invoices, status: 200 });
+  return successResponse({ res, data: invoices, message: "All invoices fetched", status: 200 });
 });
-
 
 const getInvoice = asyncWrapper(async (req, res) => {
   const invoice = await Invoice.findByPk(req.params.id, {
     include: [{ model: InvoiceItem, as: "items" }],
   });
   if (!invoice) return errorResponse({ res, message: "Invoice not found", status: 404 });
-  return successResponse({ res, message: "Invoice fetched", data: invoice, status: 200 });
+  return successResponse({ res, data: invoice, message: "Invoice fetched successfully", status: 200 });
 });
-
 
 const deleteInvoice = asyncWrapper(async (req, res) => {
   const invoice = await Invoice.findByPk(req.params.id);
   if (!invoice) return errorResponse({ res, message: "Invoice not found", status: 404 });
   await InvoiceItem.destroy({ where: { invoiceId: invoice.id } });
   await invoice.destroy();
-  return successResponse({ res, message: "Invoice deleted", status: 200 });
+  return successResponse({ res, message: "Invoice deleted successfully", status: 200 });
 });
 
 module.exports = { createInvoice, getAllInvoices, getInvoice, deleteInvoice };

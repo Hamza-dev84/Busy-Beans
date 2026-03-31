@@ -1,6 +1,6 @@
 
 
-const Customer = require("../models/customer")
+const Customer = require("../models/Customer")
 const generateToken = require("../utilities/generateToken");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
