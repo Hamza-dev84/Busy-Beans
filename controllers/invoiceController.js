@@ -57,11 +57,11 @@ const createInvoice = asyncWrapper(async (req, res) => {
 
   const invoice = await Invoice.create({
     companyName, email, address, paymentMethod,
-    noteForSupplier: noteForSupplier || null,       
+    noteForSupplier: noteForSupplier || null,
     invoiceNumber,
-    PO_number: PO_number || null,                  
+    PO_number: PO_number || null,
     invoiceDate,
-    days,                                            
+    days,
     shippingCharges: finalShipping,
     totalUSD,
     comments: comments || null,

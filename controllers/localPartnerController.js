@@ -1,7 +1,7 @@
+
 const LocalPartner = require("../models/LocalPartner");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
-
 
 const getAllPartners = asyncWrapper(async (req, res) => {
   const partners = await LocalPartner.findAll({ order: [["createdAt", "DESC"]] });
@@ -10,72 +10,63 @@ const getAllPartners = asyncWrapper(async (req, res) => {
 
 const addPartner = asyncWrapper(async (req, res) => {
   const {
-
     name, partnerType, status, creditLimit,
-
     country, state, city, zipCode, address, title, phone,
-
     email, password,
-
     shippingAddressLine1, shippingAddressLine2, shippingCountry, shippingState, shippingCity, shippingZipCode,
-
     billingSameAsShipping, billingAddressLine1, billingAddressLine2, billingCountry, billingState, billingCity, billingZipCode,
   } = req.body;
 
-  const existing = await LocalPartner.findOne({where: {email}});
-  if(existing) return errorResponse({res, message: "Email already exist"});
+  const existing = await LocalPartner.findOne({ where: { email } });
+  if (existing) return errorResponse({ res, message: "Email already exist", status: 409 });
 
   const image = req.file ? req.file.filename : null;
 
+  const isSame = billingSameAsShipping === "true" || billingSameAsShipping === true;
+
   const partner = await LocalPartner.create({
-    image,
-    name, partnerType, 
+    Image: image,
+    name, partnerType,
     status: status || "active",
     creditLimit: creditLimit || 0,
     country, state, city, zipCode, address, title, phone, email, password,
-    shippingAddressLine1, shippingAddressLine2, shippingCountry, shippingState, shippingCity,
-    shippingZipCode,
-    billingSameAsShipping : billingSameAsShipping ?? true,
-    billingAddressLine1: billingSameAsShipping ? shippingAddressLine1 : billingAddressLine1,
-    billingAddressLine2: billingSameAsShipping ? shippingAddressLine2 : billingAddressLine2,
-    billingCountry: billingSameAsShipping ? shippingCountry : billingCountry,
-    billingState: billingSameAsShipping ? shippingState : billingState,
-    billingCity: billingSameAsShipping ? shippingCity : billingCity,
-    billingZipCode: billingSameAsShipping ? shippingZipCode : billingZipCode
-  })
+    shippingAddressLine1, shippingAddressLine2, shippingCountry, shippingState, shippingCity, shippingZipCode,
+    billingSameAsShipping: isSame,
+    billingAddressLine1: isSame ? shippingAddressLine1 : billingAddressLine1,
+    billingAddressLine2: isSame ? shippingAddressLine2 : billingAddressLine2,
+    billingCountry: isSame ? shippingCountry : billingCountry,
+    billingState: isSame ? shippingState : billingState,
+    billingCity: isSame ? shippingCity : billingCity,
+    billingZipCode: isSame ? shippingZipCode : billingZipCode,
+  });
 
-  successResponse({res, data: partner, message: "Partner created", status: 201})
-
-})
+  return successResponse({ res, data: partner, message: "Partner created", status: 201 }); // ← return missing tha
+});
 
 const editPartner = asyncWrapper(async (req, res) => {
   const partner = await LocalPartner.findByPk(req.params.id);
-  if(!partner) errorResponse({res, message: "Partner not found", status: 401});
+  if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 }); // ← return missing tha
 
-  const image = req.file ? req.file.filename : partner.image;
-
-  await partner.update({...req.body, image});
-  return successResponse({res, data: partner, message: "Partner updated", status: 201});
-})
+  const image = req.file ? req.file.filename : partner.Image;
+  await partner.update({ ...req.body, Image: image });
+  return successResponse({ res, data: partner, message: "Partner updated", status: 200 });
+});
 
 const toggleStatus = asyncWrapper(async (req, res) => {
   const partner = await LocalPartner.findByPk(req.params.id);
-  if(!partner) return errorResponse({res, message: "Partner not found", status: 401});
+  if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 });
 
   const newStatus = partner.status === "active" ? "inactive" : "active";
-  await partner.update({status: newStatus});
-  return successResponse({
-    res, 
-    data: {status: newStatus}, 
-    message: `Status changed to new status ${newStatus}`
-  })
-})
+  await partner.update({ status: newStatus });
+  return successResponse({ res, data: { status: newStatus }, message: `Status changed to ${newStatus}`, status: 200 });
+});
 
 const deletePartner = asyncWrapper(async (req, res) => {
   const partner = await LocalPartner.findByPk(req.params.id);
-  if(!partner) return errorResponse({res, message: "Partner not found", status: 201});
+  if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 }); // ← 201 → 404
 
   await partner.destroy();
-  return successResponse({res, data: partner, message: "Partner deleted sucessfuly", status: 201});
-})
+  return successResponse({ res, data: null, message: "Partner deleted successfully", status: 200 });
+});
+
 module.exports = { getAllPartners, addPartner, editPartner, toggleStatus, deletePartner };

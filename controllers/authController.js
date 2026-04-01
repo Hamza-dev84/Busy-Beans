@@ -1,5 +1,5 @@
 const bcrypt = require("bcrypt");
-const Admin = require("../models/admin");
+const Admin = require("../models/Admin");
 const generateToken = require("../utilities/generateToken");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");

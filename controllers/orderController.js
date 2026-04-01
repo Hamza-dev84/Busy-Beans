@@ -1,5 +1,6 @@
 
 const { Order, OrderItem, Product, OrderTracking, Customer } = require("../models/index");
+const LocalPartner = require("../models/LocalPartner");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 
@@ -16,10 +17,10 @@ const formatLabel = (status) => {
 };
 
 const createOrder = asyncWrapper(async (req, res) => {
-    const { paymentMethod, orderFrequency, note, purchaseOrderNumber, items } = req.body;
+    const { paymentMethod, orderFrequency, note, purchaseOrderNumber, items, isLocalPartner,
+        localPartnerId } = req.body;
     const customer = req.customer;
 
-    if (!customer) return errorResponse({ res, message: "Customer not authenticated", status: 401 });
     if (!paymentMethod || !orderFrequency) return errorResponse({
         res, message: "paymentMethod and orderFrequency are required", status: 400
     });
@@ -29,63 +30,134 @@ const createOrder = asyncWrapper(async (req, res) => {
 
     let subtotal = 0;
 
-    const itemsData = await Promise.all(
-        items.map(async (item) => {
-            if (!item.productId || !item.quantity || item.quantity <= 0) {
-                throw { statusCode: 400, message: "Each item must have a productId and positive quantity" };
-            }
-            const product = await Product.findByPk(item.productId);
-            if (!product) throw { statusCode: 404, message: `Product ${item.productId} not found` };
-            subtotal += parseFloat(product.price) * item.quantity;
-            return { product, quantity: item.quantity };
-        })
-    );
+    if (isLocalPartner === true || isLocalPartner === "true") {
+        if (!localPartnerId) return
+        errorResponse({ res, message: "Local Partner Id is required", status: 401 });
 
-    const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
-    const total = parseFloat((subtotal + shippingCharges).toFixed(2));
+        const partner = await LocalPartner.findByPk(localPartnerId);
+        if (!partner) return errorResponse({ res, message: "Partner not found", status: 401 });
 
-    const order = await Order.create({
-        customerId: customer.id,
-        paymentMethod,
-        orderFrequency,
-        noteForSupplier: note || null,
-        purchaseOrderNumber: purchaseOrderNumber || null,
-        subtotal,
-        shippingCharges,
-        total,
-    });
-
-    await Promise.all(
-        itemsData.map(({ product, quantity }) =>
-            OrderItem.create({
-                orderId: order.id,
-                productId: product.id,
-                quantity,
-                price: product.price,
+        const itemsData = await Promise.all(
+            items.map(async (item) => {
+                if (!item.productId || !item.quantity || item.quantity <= 0) {
+                    throw { statusCode: 400, message: "Each item must have a productId and positive quantity" };
+                }
+                const product = await Product.findByPk(item.productId);
+                if (!product) throw { statusCode: 404, message: `Product ${item.productId} not found` };
+                subtotal += parseFloat(product.wholeSalePrice) * item.quantity;
+                return { product, quantity: item.quantity };
             })
-        )
-    );
+        );
 
-    return successResponse({
-        res,
-        message: "Order created successfully",
-        data: {
-            order: {
-                ...order.toJSON(),
-                customer: {
-                    companyName: customer.companyName,
-                    email: customer.email,
-                    address: `${customer.addressLine1 || ""}, ${customer.city || ""}, ${customer.state || ""}`,
+        const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
+        const total = parseFloat((subtotal + shippingCharges).toFixed(2));
+
+        const order = await Order.create({
+            customerId: null,
+            localPartnerId: partner.id,
+            isLocalPartner: true,
+            paymentMethod,
+            orderFrequency,
+            noteForSupplier: note || null,
+            purchaseOrderNumber: purchaseOrderNumber || null,
+            subtotal,
+            shippingCharges,
+            total,
+        });
+
+        await Promise.all(
+            itemsData.map(({ product, quantity }) =>
+                OrderItem.create({
+                    orderId: order.id,
+                    productId: product.id,
+                    quantity,
+                    price: product.wholeSalePrice,
+                })
+            )
+        );
+
+        return successResponse({
+            res,
+            message: "Order created successfully",
+            data: {
+                order: {
+                    ...order.toJSON(),
+                    partner: {
+                        name: partner.name,
+                        email: partner.email,
+                    },
+                },
+                summary: {
+                    subtotal: `$${subtotal.toFixed(2)}`,
+                    shippingCharges: `$${shippingCharges.toFixed(2)}`,
+                    total: `$${total.toFixed(2)}`,
                 },
             },
-            summary: {
-                subtotal: `$${subtotal.toFixed(2)}`,
-                shippingCharges: `$${shippingCharges.toFixed(2)}`,
-                total: `$${total.toFixed(2)}`,
+            status: 201,
+        });
+
+    } else {
+
+        if (!customer) return errorResponse({ res, message: "Customer not found", status: 401 });
+
+        const itemsData = await Promise.all(
+            items.map(async (item) => {
+                if (!item.productId || !item.quantity || item.quantity <= 0) {
+                    throw { statusCode: 400, message: "Each item must have a productId and positive quantity" };
+                }
+                const product = await Product.findByPk(item.productId);
+                if (!product) throw { statusCode: 404, message: `Product ${item.productId} not found` };
+                subtotal += parseFloat(product.price) * item.quantity;
+                return { product, quantity: item.quantity };
+            })
+        );
+
+        const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
+        const total = parseFloat((subtotal + shippingCharges).toFixed(2));
+
+        const order = await Order.create({
+            customerId: customer.id,
+            localPartnerId: null,
+            isLocalPartner: false,
+            paymentMethod, orderFrequency,
+            noteForSupplier: note || null,
+            purchaseOrderNumber: purchaseOrderNumber || null,
+            subtotal, shippingCharges, total,
+        });
+
+        await Promise.all(
+            itemsData.map(({ product, quantity }) =>
+                OrderItem.create({
+                    orderId: order.id,
+                    productId: product.id,
+                    quantity,
+                    price: product.price,
+                })
+            )
+        );
+
+        return successResponse({
+            res, message: "Order created successfully",
+            data: {
+                order: {
+                    ...order.toJSON(),
+                    customer: {
+                        companyName: customer.companyName,
+                        email: customer.email,
+                        address: `${customer.addressLine1 || ""}, ${customer.city || ""}, ${customer.state || ""}`,
+                    },
+                },
+                summary: {
+                    subtotal: `$${subtotal.toFixed(2)}`,
+                    shippingCharges: `$${shippingCharges.toFixed(2)}`,
+                    total: `$${total.toFixed(2)}`,
+                },
             },
-        },
-        status: 201,
-    });
+            status: 201,
+        });
+    }
+
+
 });
 
 const getAllOrders = asyncWrapper(async (req, res) => {
@@ -110,19 +182,24 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             { model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] },
             { model: OrderTracking, as: "tracking" },
             { model: Customer, as: "customer" },
+            { model: LocalPartner, as: "partner" }
         ]
     });
 
     if (!order) return errorResponse({ res, message: "Order not found", status: 404 });
 
     const customer = order.customer;
+    const partner = order.partner;
 
     const detail = {
         orderNumber: order.id,
         orderedOn: order.createdAt,
-        companyName: customer?.companyName || null,
-        email: customer?.email || null,
-        address: `${customer?.addressLine1 || ""}, ${customer?.city || ""}, ${customer?.state || ""}`,
+        isLocalPartner: order.isLocalPartner,
+        companyName: order.isLocalPartner ? partner?.name : customer?.companyName || null,
+        email: order.isLocalPartner ? partner?.email : customer?.email || null,
+        address: order.isLocalPartner
+            ? `${partner?.shippingAddressLine1 || ""}, ${partner?.shippingCity || ""}, ${partner?.shippingState || ""}`
+            : `${customer?.addressLine1 || ""}, ${customer?.city || ""}, ${customer?.state || ""}`,
         paymentMethod: order.paymentMethod,
         orderFrequency: order.orderFrequency,
         currentStatus: order.currentStatus,
@@ -133,7 +210,16 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
         total: `$${parseFloat(order.total).toFixed(2)}`,
 
 
-        deliverTo: {
+        deliverTo: order.isLocalPartner ? {
+            address: partner?.shippingAddressLine1 || null,
+            addressLine2: partner?.shippingAddressLine2 || null,
+            city: partner?.shippingCity || null,
+            state: partner?.shippingState || null,
+            zipCode: partner?.shippingZipCode || null,
+            country: partner?.shippingCountry || null,
+            phone: partner?.phone || null,
+            email: partner?.email || null,
+        } : {
             address: customer?.addressLine1 || null,
             addressLine2: customer?.addressLine2 || null,
             city: customer?.city || null,
@@ -145,7 +231,31 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
         },
 
 
-        invoiceTo: {
+        invoiceTo: order.isLocalPartner ? {
+            companyName: partner?.name || null,
+            address: partner?.billingSameAsShipping
+                ? partner?.shippingAddressLine1
+                : partner?.billingAddressLine1 || null,
+
+            city: partner?.billingSameAsShipping
+                ? partner?.shippingCity
+                : partner?.billingCity || null,
+
+            state: partner?.billingSameAsShipping
+                ? partner?.shippingState
+                : partner?.billingState || null,
+
+            zipCode: partner?.billingSameAsShipping
+                ? partner?.shippingZipCode
+                : partner?.billingZipCode || null,
+
+            country: partner?.billingSameAsShipping
+                ? partner?.shippingCountry
+                : partner?.billingCountry || null,
+
+            phone: partner?.phone,
+            email: partner?.email || null,
+        } : {
             companyName: customer?.companyName || null,
             address: customer?.billingSameAsShipping
                 ? customer?.addressLine1
@@ -190,7 +300,7 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             })),
     };
 
-    return successResponse({ res, data: detail, message: "Order detail fetched", status: 200 });
+    return successResponse({ res, data: detail, message: "Order detail fetched", status: 201 });
 });
 
 const deleteOrder = asyncWrapper(async (req, res) => {
@@ -198,7 +308,7 @@ const deleteOrder = asyncWrapper(async (req, res) => {
     if (!order) return errorResponse({ res, message: "Order not found", status: 404 });
     await OrderItem.destroy({ where: { orderId: order.id } });
     await order.destroy();
-    return successResponse({ res, data: null, message: "Order deleted successfully", status: 200 });
+    return successResponse({ res, data: null, message: "Order deleted successfully", status: 201 });
 });
 
 module.exports = { createOrder, getAllOrders, getOrder, getOrderDetail, deleteOrder };

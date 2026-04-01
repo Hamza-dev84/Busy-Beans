@@ -11,7 +11,17 @@ const Order = sequelize.define("order", {
 
     customerId: {
         type: DataTypes.INTEGER,
-        allowNull: false
+        allowNull: true
+    },
+
+    localPartnerId: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
+
+    isLocalPartner: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
     },
 
     paymentMethod: {
