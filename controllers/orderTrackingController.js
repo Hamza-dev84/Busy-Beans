@@ -1,4 +1,5 @@
 
+const { sequelize } = require("../config/db");
 const { Order, OrderTracking } = require("../models/index");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
@@ -52,13 +53,21 @@ const updateOrderStatus = asyncWrapper(async (req, res) => {
     return errorResponse({ res, message: `Status "${status}" already set`, status: 409 });
   }
 
-  const tracking = await OrderTracking.create({
-    orderId: order.id,
-    status,
-    timestamp: getPakistanTime(),
-  });
+  const { tracking } = await sequelize.transaction(async (t) => {
+    const tracking = await OrderTracking.create({
+      orderId: order.id,
+      status,
+      timestamp: getPakistanTime(),
+    }, { transaction: t });
 
-  await order.update({ currentStatus: status });
+    await order.update({
+      currentStatus: status,
+      status: status === "shipped" ? "completed" : "pending",
+    }, { transaction: t });
+
+    return { tracking };
+  })
+
 
   return successResponse({
     res,

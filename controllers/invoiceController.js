@@ -1,3 +1,4 @@
+const { sequelize } = require("../config/db");
 const { Invoice, InvoiceItem } = require("../models/index");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
@@ -55,7 +56,8 @@ const createInvoice = asyncWrapper(async (req, res) => {
   const finalShipping = parseFloat(shippingCharges || 0);
   totalUSD = parseFloat((totalUSD + finalShipping).toFixed(2));
 
-  const invoice = await Invoice.create({
+  const { invoice } = await sequelize.transaction(async (t) => {
+    const invoice = await Invoice.create({
     companyName, email, address, paymentMethod,
     noteForSupplier: noteForSupplier || null,
     invoiceNumber,
@@ -66,13 +68,17 @@ const createInvoice = asyncWrapper(async (req, res) => {
     totalUSD,
     comments: comments || null,
     emailToCustomer: emailToCustomer || false,
-  });
+  }, {transaction: t});
 
   await Promise.all(
     invoiceItems.map((item) =>
-      InvoiceItem.create({ invoiceId: invoice.id, ...item })
+      InvoiceItem.create(
+        { invoiceId: invoice.id, ...item }, {transaction: t})
     )
   );
+
+  return {invoice};
+  })
 
   if (emailToCustomer) {
     await sendInvoiceEmail(email, invoice);

@@ -58,7 +58,7 @@ const toggleStatus = asyncWrapper(async (req, res) => {
 
   const newStatus = partner.status === "active" ? "inactive" : "active";
   await partner.update({ status: newStatus });
-  return successResponse({ res, data: { status: newStatus }, message: `Status changed to ${newStatus}`, status: 200 });
+  return successResponse({ res, data: { newStatus }, message: `Status changed to ${newStatus}`, status: 200 });
 });
 
 const deletePartner = asyncWrapper(async (req, res) => {

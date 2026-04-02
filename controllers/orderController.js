@@ -1,4 +1,5 @@
 
+const { sequelize } = require("../config/db");
 const { Order, OrderItem, Product, OrderTracking, Customer } = require("../models/index");
 const LocalPartner = require("../models/LocalPartner");
 const asyncWrapper = require("../utilities/asyncWrapper");
@@ -31,8 +32,7 @@ const createOrder = asyncWrapper(async (req, res) => {
     let subtotal = 0;
 
     if (isLocalPartner === true || isLocalPartner === "true") {
-        if (!localPartnerId) return
-        errorResponse({ res, message: "Local Partner Id is required", status: 401 });
+        if (!localPartnerId) return errorResponse({ res, message: "Local Partner Id is required", status: 401 });
 
         const partner = await LocalPartner.findByPk(localPartnerId);
         if (!partner) return errorResponse({ res, message: "Partner not found", status: 401 });
@@ -52,29 +52,35 @@ const createOrder = asyncWrapper(async (req, res) => {
         const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
         const total = parseFloat((subtotal + shippingCharges).toFixed(2));
 
-        const order = await Order.create({
-            customerId: null,
-            localPartnerId: partner.id,
-            isLocalPartner: true,
-            paymentMethod,
-            orderFrequency,
-            noteForSupplier: note || null,
-            purchaseOrderNumber: purchaseOrderNumber || null,
-            subtotal,
-            shippingCharges,
-            total,
-        });
+        const order = await sequelize.transaction(async (t) => {
 
-        await Promise.all(
-            itemsData.map(({ product, quantity }) =>
-                OrderItem.create({
-                    orderId: order.id,
-                    productId: product.id,
-                    quantity,
-                    price: product.wholeSalePrice,
-                })
-            )
-        );
+            const order = await Order.create({
+                customerId: null,
+                localPartnerId: partner.id,
+                isLocalPartner: true,
+                paymentMethod,
+                orderFrequency,
+                noteForSupplier: note || null,
+                purchaseOrderNumber: purchaseOrderNumber || null,
+                subtotal,
+                shippingCharges,
+                total,
+            }, { transaction: t });
+
+            await Promise.all(
+                itemsData.map(({ product, quantity }) =>
+                    OrderItem.create({
+                        orderId: order.id,
+                        productId: product.id,
+                        quantity,
+                        price: product.wholeSalePrice,
+                    }, { transaction: t })
+                )
+            );
+
+            return order;
+
+        })
 
         return successResponse({
             res,
@@ -115,26 +121,31 @@ const createOrder = asyncWrapper(async (req, res) => {
         const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
         const total = parseFloat((subtotal + shippingCharges).toFixed(2));
 
-        const order = await Order.create({
-            customerId: customer.id,
-            localPartnerId: null,
-            isLocalPartner: false,
-            paymentMethod, orderFrequency,
-            noteForSupplier: note || null,
-            purchaseOrderNumber: purchaseOrderNumber || null,
-            subtotal, shippingCharges, total,
-        });
+        const order = await sequelize.transaction(async (t) => {
+            const order = await Order.create({
+                customerId: customer.id,
+                localPartnerId: null,
+                isLocalPartner: false,
+                paymentMethod, orderFrequency,
+                noteForSupplier: note || null,
+                purchaseOrderNumber: purchaseOrderNumber || null,
+                subtotal, shippingCharges, total,
+            }, { transaction: t });
 
-        await Promise.all(
-            itemsData.map(({ product, quantity }) =>
-                OrderItem.create({
-                    orderId: order.id,
-                    productId: product.id,
-                    quantity,
-                    price: product.price,
-                })
-            )
-        );
+            await Promise.all(
+                itemsData.map(({ product, quantity }) =>
+                    OrderItem.create({
+                        orderId: order.id,
+                        productId: product.id,
+                        quantity,
+                        price: product.price,
+                    }, { transaction: t })
+                )
+            );
+
+            return order;
+
+        })
 
         return successResponse({
             res, message: "Order created successfully",
