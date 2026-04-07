@@ -93,8 +93,7 @@ const changePartnerProductPrice = asyncWrapper(async (req, res) => {
     });
 
     const updated = await PartnerProduct.findAll({
-        where: { partnerId },
-        include: [{ model: Product, as: "product" }]
+        where: { partnerId }
     });
 
     return successResponse({ res, data: updated, message: "Prices updated successfuly", status: 201 });
