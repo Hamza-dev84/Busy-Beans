@@ -10,6 +10,11 @@ const Customer = sequelize.define("customer", {
         primaryKey: true
     },
 
+    localPartnerId: { 
+        type: DataTypes.INTEGER, 
+        allowNull: true 
+    },
+
     addressLine1: {
         type: DataTypes.STRING,
         allowNull: false,

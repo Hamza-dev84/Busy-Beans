@@ -4,6 +4,7 @@ const Customer = require("../models/Customer")
 const generateToken = require("../utilities/generateToken");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
+const { LocalPartner } = require("../models");
 
 
 const register = asyncWrapper(async (req, res) => {
@@ -24,26 +25,38 @@ const register = asyncWrapper(async (req, res) => {
     const existing = await Customer.findOne({ where: { email } });
     if (existing) return errorResponse({ res, message: "email already exist", status: 401 });
 
+    const localPartner = await LocalPartner.findOne({
+        where: { shippingState: state, status: "active" }
+    });
+
+    const isSame = billingSameAsShipping === "true" || billingSameAsShipping === true;
+
     const customer = await Customer.create({
         addressLine1, addressLine2, country, state, city, zipCode,
-        billingSameAsShipping: billingSameAsShipping ?? true, 
-        billingAddress: billingSameAsShipping ? addressLine1 : billingAddress, 
-        billingCountry: billingSameAsShipping ? country : billingCountry, 
-        billingState: billingSameAsShipping ? state : billingState, 
-        billingCity: billingSameAsShipping ? city : billingCity,
-        billingZipCode: billingSameAsShipping ? zipCode : billingZipCode,
+        billingSameAsShipping: isSame,
+        billingAddress: isSame ? addressLine1 : billingAddress,
+        billingCountry: isSame ? country : billingCountry,
+        billingState: isSame ? state : billingState,
+        billingCity: isSame ? city : billingCity,
+        billingZipCode: isSame ? zipCode : billingZipCode,
 
-        companyName, 
+        companyName,
         phoneCode: phoneCode || "+1", phone, saleTaxNumber, dispatchEmail, invoiceEmail,
 
-        userName, email, password, confirmPassword,
+        userName, email, password,
+        localPartnerId: localPartner ? localPartner.id : null
     });
 
     const token = generateToken(customer);
 
     return successResponse({
         res,
-        data: { customer, token },
+        data: {
+            customer,
+            assignedPartner: localPartner
+                ? { id: localPartner.id, name: localPartner.name, state: localPartner.shippingState } :
+                null
+        },
         message: "Customer registered successfuly",
         status: 201
     });

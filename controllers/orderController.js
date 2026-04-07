@@ -1,7 +1,8 @@
-
 const { sequelize } = require("../config/db");
 const { Order, OrderItem, Product, OrderTracking, Customer } = require("../models/index");
 const LocalPartner = require("../models/LocalPartner");
+const PartnerProduct = require("../models/PartnerProduct");
+const OrderProfit = require("../models/OrderProfit");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 
@@ -18,8 +19,11 @@ const formatLabel = (status) => {
 };
 
 const createOrder = asyncWrapper(async (req, res) => {
-    const { paymentMethod, orderFrequency, note, purchaseOrderNumber, items, isLocalPartner,
-        localPartnerId } = req.body;
+    const {
+        paymentMethod, orderFrequency, note, purchaseOrderNumber, items,
+        isLocalPartner, localPartnerId,
+        isAdminPartnerOrder, customerId 
+    } = req.body;
     const customer = req.customer;
 
     if (!paymentMethod || !orderFrequency) return errorResponse({
@@ -30,12 +34,123 @@ const createOrder = asyncWrapper(async (req, res) => {
     });
 
     let subtotal = 0;
+    let wholeSaleTotal = 0;
 
-    if (isLocalPartner === true || isLocalPartner === "true") {
-        if (!localPartnerId) return errorResponse({ res, message: "Local Partner Id is required", status: 401 });
+    if (isAdminPartnerOrder === true || isAdminPartnerOrder === "true") {
+        if (!localPartnerId) return errorResponse({ res, message: "localPartnerId is required", status: 400 });
+        if (!customerId) return errorResponse({ res, message: "customerId is required", status: 400 });
 
         const partner = await LocalPartner.findByPk(localPartnerId);
-        if (!partner) return errorResponse({ res, message: "Partner not found", status: 401 });
+        if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 });
+
+        const selectedCustomer = await Customer.findOne({
+            where: { id: customerId, localPartnerId: partner.id }
+        });
+        if (!selectedCustomer) return errorResponse({
+            res, message: "Customer does not belong to this partner", status: 403
+        });
+
+        const itemsData = await Promise.all(
+            items.map(async (item) => {
+                if (!item.productId || !item.quantity || item.quantity <= 0) {
+                    throw { statusCode: 400, message: "Each item must have a productId and positive quantity" };
+                }
+
+                const partnerProduct = await PartnerProduct.findOne({
+                    where: { partnerId: localPartnerId, productId: item.productId }
+                });
+                if (!partnerProduct) throw { statusCode: 400, message: `Product ${item.productId} not assigned to this partner` };
+
+                const product = await Product.findByPk(item.productId);
+                if (!product) throw { statusCode: 404, message: `Product ${item.productId} not found` };
+
+                
+                const sellingPrice = partnerProduct.sellingPrice
+                    ? parseFloat(partnerProduct.sellingPrice)
+                    : parseFloat(product.price);
+
+               
+                const wsPrice = partnerProduct.wholesalePrice
+                    ? parseFloat(partnerProduct.wholesalePrice)
+                    : parseFloat(product.wholeSalePrice);
+
+                subtotal += sellingPrice * item.quantity;
+                wholeSaleTotal += wsPrice * item.quantity;
+
+                return { product, quantity: item.quantity, sellingPrice, wsPrice };
+            })
+        );
+
+        const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
+        const total = parseFloat((subtotal + shippingCharges).toFixed(2));
+        const adminReceives = parseFloat((wholeSaleTotal + shippingCharges).toFixed(2));
+        const partnerProfit = parseFloat((total - adminReceives).toFixed(2));
+
+        const { order } = await sequelize.transaction(async (t) => {
+            const order = await Order.create({
+                customerId: selectedCustomer.id,
+                localPartnerId: partner.id,
+                isLocalPartner: true,
+                paymentMethod, orderFrequency,
+                noteForSupplier: note || null,
+                purchaseOrderNumber: purchaseOrderNumber || null,
+                subtotal, shippingCharges, total,
+            }, { transaction: t });
+
+            await Promise.all(
+                itemsData.map(({ product, quantity, sellingPrice }) =>
+                    OrderItem.create({
+                        orderId: order.id,
+                        productId: product.id,
+                        quantity,
+                        price: sellingPrice,
+                    }, { transaction: t })
+                )
+            );
+
+            await OrderProfit.create({
+                orderId: order.id,
+                partnerId: partner.id,
+                orderTotal: total,
+                wholeSaleTotal,
+                shippingCharges,
+                adminReceives,
+                partnerProfit,
+            }, { transaction: t });
+
+            return { order };
+        });
+
+        return successResponse({
+            res, message: "Partner order created successfully",
+            data: {
+                order: {
+                    ...order.toJSON(),
+                    partner: { name: partner.name, email: partner.email },
+                    customer: {
+                        companyName: selectedCustomer.companyName,
+                        email: selectedCustomer.email,
+                    },
+                },
+                summary: {
+                    subtotal: `$${subtotal.toFixed(2)}`,
+                    shippingCharges: `$${shippingCharges.toFixed(2)}`,
+                    total: `$${total.toFixed(2)}`,
+                },
+                profitBreakdown: {
+                    orderTotal: `$${total.toFixed(2)}`,
+                    adminReceives: `$${adminReceives.toFixed(2)}`,
+                    partnerProfit: `$${partnerProfit.toFixed(2)}`,
+                },
+            },
+            status: 201,
+        });
+
+    } else if (isLocalPartner === true || isLocalPartner === "true") {
+        if (!localPartnerId) return errorResponse({ res, message: "Local Partner Id is required", status: 400 });
+
+        const partner = await LocalPartner.findByPk(localPartnerId);
+        if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 });
 
         const itemsData = await Promise.all(
             items.map(async (item) => {
@@ -53,18 +168,14 @@ const createOrder = asyncWrapper(async (req, res) => {
         const total = parseFloat((subtotal + shippingCharges).toFixed(2));
 
         const order = await sequelize.transaction(async (t) => {
-
             const order = await Order.create({
                 customerId: null,
                 localPartnerId: partner.id,
                 isLocalPartner: true,
-                paymentMethod,
-                orderFrequency,
+                paymentMethod, orderFrequency,
                 noteForSupplier: note || null,
                 purchaseOrderNumber: purchaseOrderNumber || null,
-                subtotal,
-                shippingCharges,
-                total,
+                subtotal, shippingCharges, total,
             }, { transaction: t });
 
             await Promise.all(
@@ -79,19 +190,14 @@ const createOrder = asyncWrapper(async (req, res) => {
             );
 
             return order;
-
-        })
+        });
 
         return successResponse({
-            res,
-            message: "Order created successfully",
+            res, message: "Order created successfully",
             data: {
                 order: {
                     ...order.toJSON(),
-                    partner: {
-                        name: partner.name,
-                        email: partner.email,
-                    },
+                    partner: { name: partner.name, email: partner.email },
                 },
                 summary: {
                     subtotal: `$${subtotal.toFixed(2)}`,
@@ -103,7 +209,6 @@ const createOrder = asyncWrapper(async (req, res) => {
         });
 
     } else {
-
         if (!customer) return errorResponse({ res, message: "Customer not found", status: 401 });
 
         const itemsData = await Promise.all(
@@ -144,8 +249,7 @@ const createOrder = asyncWrapper(async (req, res) => {
             );
 
             return order;
-
-        })
+        });
 
         return successResponse({
             res, message: "Order created successfully",
@@ -167,8 +271,6 @@ const createOrder = asyncWrapper(async (req, res) => {
             status: 201,
         });
     }
-
-
 });
 
 const getAllOrders = asyncWrapper(async (req, res) => {
@@ -193,7 +295,8 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             { model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] },
             { model: OrderTracking, as: "tracking" },
             { model: Customer, as: "customer" },
-            { model: LocalPartner, as: "partner" }
+            { model: LocalPartner, as: "partner" },
+            { model: OrderProfit, as: "profit" },
         ]
     });
 
@@ -206,7 +309,8 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
         orderNumber: order.id,
         orderedOn: order.createdAt,
         isLocalPartner: order.isLocalPartner,
-        companyName: order.isLocalPartner ? partner?.name : customer?.companyName || null,
+        companyName: customer.companyName,
+        LocalPartnerName: partner ? partner.name : null,
         email: order.isLocalPartner ? partner?.email : customer?.email || null,
         address: order.isLocalPartner
             ? `${partner?.shippingAddressLine1 || ""}, ${partner?.shippingCity || ""}, ${partner?.shippingState || ""}`
@@ -220,6 +324,11 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
         shippingCharges: `$${parseFloat(order.shippingCharges).toFixed(2)}`,
         total: `$${parseFloat(order.total).toFixed(2)}`,
 
+        profitBreakdown: order.profit ? {
+            orderTotal: `$${parseFloat(order.profit.orderTotal).toFixed(2)}`,
+            adminReceives: `$${parseFloat(order.profit.adminReceives).toFixed(2)}`,
+            partnerProfit: `$${parseFloat(order.profit.partnerProfit).toFixed(2)}`,
+        } : null,
 
         deliverTo: order.isLocalPartner ? {
             address: partner?.shippingAddressLine1 || null,
@@ -241,53 +350,22 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             email: customer?.email || null,
         },
 
-
         invoiceTo: order.isLocalPartner ? {
             companyName: partner?.name || null,
-            address: partner?.billingSameAsShipping
-                ? partner?.shippingAddressLine1
-                : partner?.billingAddressLine1 || null,
-
-            city: partner?.billingSameAsShipping
-                ? partner?.shippingCity
-                : partner?.billingCity || null,
-
-            state: partner?.billingSameAsShipping
-                ? partner?.shippingState
-                : partner?.billingState || null,
-
-            zipCode: partner?.billingSameAsShipping
-                ? partner?.shippingZipCode
-                : partner?.billingZipCode || null,
-
-            country: partner?.billingSameAsShipping
-                ? partner?.shippingCountry
-                : partner?.billingCountry || null,
-
-            phone: partner?.phone,
+            address: partner?.billingSameAsShipping ? partner?.shippingAddressLine1 : partner?.billingAddressLine1 || null,
+            city: partner?.billingSameAsShipping ? partner?.shippingCity : partner?.billingCity || null,
+            state: partner?.billingSameAsShipping ? partner?.shippingState : partner?.billingState || null,
+            zipCode: partner?.billingSameAsShipping ? partner?.shippingZipCode : partner?.billingZipCode || null,
+            country: partner?.billingSameAsShipping ? partner?.shippingCountry : partner?.billingCountry || null,
+            phone: partner?.phone || null,
             email: partner?.email || null,
         } : {
             companyName: customer?.companyName || null,
-            address: customer?.billingSameAsShipping
-                ? customer?.addressLine1
-                : customer?.billingAddress || null,
-
-            city: customer?.billingSameAsShipping
-                ? customer?.city
-                : customer?.billingCity || null,
-
-            state: customer?.billingSameAsShipping
-                ? customer?.state
-                : customer?.billingState || null,
-
-            zipCode: customer?.billingSameAsShipping
-                ? customer?.zipCode
-                : customer?.billingzipCode || null,
-
-            country: customer?.billingSameAsShipping
-                ? customer?.country
-                : customer?.billingCountry || null,
-
+            address: customer?.billingSameAsShipping ? customer?.addressLine1 : customer?.billingAddress || null,
+            city: customer?.billingSameAsShipping ? customer?.city : customer?.billingCity || null,
+            state: customer?.billingSameAsShipping ? customer?.state : customer?.billingState || null,
+            zipCode: customer?.billingSameAsShipping ? customer?.zipCode : customer?.billingZipCode || null,
+            country: customer?.billingSameAsShipping ? customer?.country : customer?.billingCountry || null,
             phone: `${customer?.phoneCode || ""} ${customer?.phone || ""}`,
             email: customer?.email || null,
         },
@@ -317,7 +395,9 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
 const deleteOrder = asyncWrapper(async (req, res) => {
     const order = await Order.findByPk(req.params.id);
     if (!order) return errorResponse({ res, message: "Order not found", status: 404 });
+    await OrderProfit.destroy({ where: { orderId: order.id } });
     await OrderItem.destroy({ where: { orderId: order.id } });
+    await OrderTracking.destroy({ where: { orderId: order.id } });
     await order.destroy();
     return successResponse({ res, data: null, message: "Order deleted successfully", status: 201 });
 });
