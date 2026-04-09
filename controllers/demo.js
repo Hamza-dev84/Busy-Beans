@@ -6,6 +6,7 @@ const PartnerProduct = require("../models/PartnerProduct");
 const OrderProfit = require("../models/OrderProfit");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
+const { Op } = require("sequelize");
 
 const SHIPPING_RATE = 0.2;
 
@@ -20,92 +21,114 @@ const formatLabel = (status) => {
 };
 
 const createOrder = asyncWrapper(async (req, res) => {
-    const {
-        paymentMethod, orderFrequency, note, purchaseOrderNumber, items,
-        isLocalPartner, localPartnerId,
-        isAdminPartnerOrder, customerId
-    } = req.body;
+    const { orderObj, items } = req.body;
     const customer = req.customer;
 
-    if (!paymentMethod || !orderFrequency) return errorResponse({
-        res, message: "paymentMethod and orderFrequency are required", status: 400
+    if (!orderObj || !items || items.length === 0) {
+        return errorResponse({ res, message: "orderObj and items are required", status: 400 });
+    }
+
+    const { paymentMethod, orderFrequency, note, purchaseOrderNumber, localPartnerId, customerId, isAdminPartnerOrder } = orderObj;
+
+    if (!paymentMethod || !orderFrequency) {
+        return errorResponse({ res, message: "paymentMethod and orderFrequency are required", status: 400 });
+    }
+
+    for (const item of items) {
+        if (!item.productId || !item.quantity || item.quantity <= 0) {
+            return errorResponse({ res, message: "Each item must have a productId and positive quantity", status: 400 });
+        }
+    }
+
+    const isAdminOrder = isAdminPartnerOrder === true;
+    const prodIds = items.map(item => item.productId);
+
+    const Model = isAdminOrder ? PartnerProduct : Product;
+    const productCondition = isAdminOrder
+        ? { productId: { [Op.in]: prodIds }, partnerId: localPartnerId }
+        : { id: { [Op.in]: prodIds } };
+
+    const products = await Model.findAll({
+        where: productCondition,
+        ...(isAdminOrder ? { include: [{ model: Product, as: "product" }] } : {})
     });
-    if (!Array.isArray(items) || items.length === 0) return errorResponse({
-        res, message: "At least one item is required", status: 400
-    });
+
+
+    if (products.length !== prodIds.length) {
+        return errorResponse({ res, message: "One or more products not found or not assigned to this partner", status: 404 });
+    }
 
     let subtotal = 0;
     let wholeSaleTotal = 0;
+    const itemsData = [];
 
-    // ─── Admin Partner Order ──────────────────
-    if (isAdminPartnerOrder === true || isAdminPartnerOrder === "true") {
+    for (const item of items) {
+        const found = isAdminOrder
+            ? products.find(p => p.productId === item.productId)
+            : products.find(p => p.id === item.productId);
+
+        const sellingPrice = isAdminOrder
+            ? (found.sellingPrice ? parseFloat(found.sellingPrice) : parseFloat(found.product.price))
+            : parseFloat(found.price);
+
+        const wsPrice = isAdminOrder
+            ? (found.wholesalePrice ? parseFloat(found.wholesalePrice) : parseFloat(found.product.wholeSalePrice))
+            : parseFloat(found.wholeSalePrice);
+
+        subtotal += sellingPrice * item.quantity;
+        if (isAdminOrder) wholeSaleTotal += wsPrice * item.quantity;
+
+        itemsData.push({
+            product: isAdminOrder ? found.product : found,
+            quantity: item.quantity,
+            sellingPrice,
+        });
+    }
+
+    const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
+    const total = parseFloat((subtotal + shippingCharges).toFixed(2));
+
+    let partner = null;
+    let selectedCustomer = customer;
+
+    if (isAdminOrder) {
         if (!localPartnerId) return errorResponse({ res, message: "localPartnerId is required", status: 400 });
         if (!customerId) return errorResponse({ res, message: "customerId is required", status: 400 });
 
-        const partner = await LocalPartner.findByPk(localPartnerId);
+        partner = await LocalPartner.findByPk(localPartnerId);
         if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 });
 
-        const selectedCustomer = await Customer.findOne({
-            where: { id: customerId, localPartnerId: partner.id }
-        });
-        if (!selectedCustomer) return errorResponse({
-            res, message: "Customer does not belong to this partner", status: 403
-        });
+        selectedCustomer = await Customer.findOne({ where: { id: customerId, localPartnerId: partner.id } });
+        if (!selectedCustomer) return errorResponse({ res, message: "Customer does not belong to this partner", status: 403 });
+    } else if (customer.localPartnerId) {
+        partner = await LocalPartner.findByPk(customer.localPartnerId);
+    }
 
-        // for...of loop
-        const itemsData = [];
-        for (const item of items) {
-            if (!item.productId || !item.quantity || item.quantity <= 0) {
-                return errorResponse({ res, message: "Each item must have a productId and positive quantity", status: 400 });
-            }
+    const adminReceives = isAdminOrder ? parseFloat((wholeSaleTotal + shippingCharges).toFixed(2)) : null;
+    const partnerProfit = isAdminOrder ? parseFloat((total - adminReceives).toFixed(2)) : null;
 
-            const partnerProduct = await PartnerProduct.findOne({
-                where: { partnerId: localPartnerId, productId: item.productId }
-            });
-            if (!partnerProduct) return errorResponse({ res, message: `Product ${item.productId} not assigned to this partner`, status: 400 });
+    const { order } = await sequelize.transaction(async (t) => {
+        const order = await Order.create({
+            customerId: selectedCustomer?.id || null,
+            localPartnerId: partner?.id || null,
+            isLocalPartner: !!partner,
+            paymentMethod, orderFrequency,
+            noteForSupplier: note || null,
+            purchaseOrderNumber: purchaseOrderNumber || null,
+            subtotal, shippingCharges, total,
+        }, { transaction: t });
 
-            const product = await Product.findByPk(item.productId);
-            if (!product) return errorResponse({ res, message: `Product ${item.productId} not found`, status: 404 });
-
-            const sellingPrice = partnerProduct.sellingPrice
-                ? parseFloat(partnerProduct.sellingPrice)
-                : parseFloat(product.price);
-
-            const wsPrice = partnerProduct.wholesalePrice
-                ? parseFloat(partnerProduct.wholesalePrice)
-                : parseFloat(product.wholeSalePrice);
-
-            subtotal += sellingPrice * item.quantity;
-            wholeSaleTotal += wsPrice * item.quantity;
-
-            itemsData.push({ product, quantity: item.quantity, sellingPrice, wsPrice });
+        for (const { product, quantity, sellingPrice } of itemsData) {
+            await OrderItem.create({
+                orderId: order.id,
+                productId: product.id,
+                quantity,
+                unitPrice: sellingPrice,
+                total: sellingPrice * quantity
+            }, { transaction: t });
         }
 
-        const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
-        const total = parseFloat((subtotal + shippingCharges).toFixed(2));
-        const adminReceives = parseFloat((wholeSaleTotal + shippingCharges).toFixed(2));
-        const partnerProfit = parseFloat((total - adminReceives).toFixed(2));
-
-        const { order } = await sequelize.transaction(async (t) => {
-            const order = await Order.create({
-                customerId: selectedCustomer.id,
-                localPartnerId: partner.id,
-                isLocalPartner: true,
-                paymentMethod, orderFrequency,
-                noteForSupplier: note || null,
-                purchaseOrderNumber: purchaseOrderNumber || null,
-                subtotal, shippingCharges, total,
-            }, { transaction: t });
-
-            for (const { product, quantity, sellingPrice } of itemsData) {
-                await OrderItem.create({
-                    orderId: order.id,
-                    productId: product.id,
-                    quantity,
-                    price: sellingPrice,
-                }, { transaction: t });
-            }
-
+        if (isAdminOrder && partner) {
             await OrderProfit.create({
                 orderId: order.id,
                 partnerId: partner.id,
@@ -115,157 +138,45 @@ const createOrder = asyncWrapper(async (req, res) => {
                 adminReceives,
                 partnerProfit,
             }, { transaction: t });
+        }
 
-            return { order };
-        });
+        await OrderTracking.create({
+            orderId: order.id,
+            status: "order_placed",
+            timestamp: new Date(),
+        }, { transaction: t });
 
-        return successResponse({
-            res, message: "Partner order created successfully",
-            data: {
-                order: {
-                    ...order.toJSON(),
-                    partner: { name: partner.name, email: partner.email },
-                    customer: {
-                        companyName: selectedCustomer.companyName,
-                        email: selectedCustomer.email,
-                    },
+        return { order };
+    });
+
+    return successResponse({
+        res, message: "Order created successfully",
+        data: {
+            order: {
+                ...order.toJSON(),
+                ...(partner && { partner: { name: partner.name, email: partner.email } }),
+                customer: {
+                    companyName: selectedCustomer?.companyName,
+                    email: selectedCustomer?.email,
+                    address: `${selectedCustomer?.addressLine1 || ""}, ${selectedCustomer?.city || ""}, ${selectedCustomer?.state || ""}`,
                 },
-                summary: {
-                    wholeSalePrice: `$${wholeSaleTotal.toFixed(2)}`,
-                    subtotal: `$${subtotal.toFixed(2)}`,
-                    shippingCharges: `$${shippingCharges.toFixed(2)}`,
-                    total: `$${total.toFixed(2)}`,
-                },
+            },
+            summary: {
+                subtotal: `$${subtotal.toFixed(2)}`,
+                shippingCharges: `$${shippingCharges.toFixed(2)}`,
+                total: `$${total.toFixed(2)}`,
+                ...(isAdminOrder && { wholeSaleTotal: `$${wholeSaleTotal.toFixed(2)}` }),
+            },
+            ...(isAdminOrder && partner && {
                 profitBreakdown: {
                     orderTotal: `$${total.toFixed(2)}`,
                     adminReceives: `$${adminReceives.toFixed(2)}`,
                     partnerProfit: `$${partnerProfit.toFixed(2)}`,
-                },
-            },
-            status: 201,
-        });
-
-    // ─── Local Partner (customer app) ─────────
-    } else if (isLocalPartner === true || isLocalPartner === "true") {
-        if (!localPartnerId) return errorResponse({ res, message: "Local Partner Id is required", status: 400 });
-
-        const partner = await LocalPartner.findByPk(localPartnerId);
-        if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 });
-
-        const itemsData = [];
-        for (const item of items) {
-            if (!item.productId || !item.quantity || item.quantity <= 0) {
-                return errorResponse({ res, message: "Each item must have a productId and positive quantity", status: 400 });
-            }
-            const product = await Product.findByPk(item.productId);
-            if (!product) return errorResponse({ res, message: `Product ${item.productId} not found`, status: 404 });
-            subtotal += parseFloat(product.wholeSalePrice) * item.quantity;
-            itemsData.push({ product, quantity: item.quantity });
-        }
-
-        const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
-        const total = parseFloat((subtotal + shippingCharges).toFixed(2));
-
-        const order = await sequelize.transaction(async (t) => {
-            const order = await Order.create({
-                customerId: null,
-                localPartnerId: partner.id,
-                isLocalPartner: true,
-                paymentMethod, orderFrequency,
-                noteForSupplier: note || null,
-                purchaseOrderNumber: purchaseOrderNumber || null,
-                subtotal, shippingCharges, total,
-            }, { transaction: t });
-
-            for (const { product, quantity } of itemsData) {
-                await OrderItem.create({
-                    orderId: order.id,
-                    productId: product.id,
-                    quantity,
-                    price: product.wholeSalePrice,
-                }, { transaction: t });
-            }
-
-            return order;
-        });
-
-        return successResponse({
-            res, message: "Order created successfully",
-            data: {
-                order: {
-                    ...order.toJSON(),
-                    partner: { name: partner.name, email: partner.email },
-                },
-                summary: {
-                    subtotal: `$${subtotal.toFixed(2)}`,
-                    shippingCharges: `$${shippingCharges.toFixed(2)}`,
-                    total: `$${total.toFixed(2)}`,
-                },
-            },
-            status: 201,
-        });
-
-    // ─── Normal Customer Order ────────────────
-    } else {
-        if (!customer) return errorResponse({ res, message: "Customer not found", status: 401 });
-
-        const itemsData = [];
-        for (const item of items) {
-            if (!item.productId || !item.quantity || item.quantity <= 0) {
-                return errorResponse({ res, message: "Each item must have a productId and positive quantity", status: 400 });
-            }
-            const product = await Product.findByPk(item.productId);
-            if (!product) return errorResponse({ res, message: `Product ${item.productId} not found`, status: 404 });
-            subtotal += parseFloat(product.price) * item.quantity;
-            itemsData.push({ product, quantity: item.quantity });
-        }
-
-        const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
-        const total = parseFloat((subtotal + shippingCharges).toFixed(2));
-
-        const order = await sequelize.transaction(async (t) => {
-            const order = await Order.create({
-                customerId: customer.id,
-                localPartnerId: null,
-                isLocalPartner: false,
-                paymentMethod, orderFrequency,
-                noteForSupplier: note || null,
-                purchaseOrderNumber: purchaseOrderNumber || null,
-                subtotal, shippingCharges, total,
-            }, { transaction: t });
-
-            for (const { product, quantity } of itemsData) {
-                await OrderItem.create({
-                    orderId: order.id,
-                    productId: product.id,
-                    quantity,
-                    price: product.price,
-                }, { transaction: t });
-            }
-
-            return order;
-        });
-
-        return successResponse({
-            res, message: "Order created successfully",
-            data: {
-                order: {
-                    ...order.toJSON(),
-                    customer: {
-                        companyName: customer.companyName,
-                        email: customer.email,
-                        address: `${customer.addressLine1 || ""}, ${customer.city || ""}, ${customer.state || ""}`,
-                    },
-                },
-                summary: {
-                    subtotal: `$${subtotal.toFixed(2)}`,
-                    shippingCharges: `$${shippingCharges.toFixed(2)}`,
-                    total: `$${total.toFixed(2)}`,
-                },
-            },
-            status: 201,
-        });
-    }
+                }
+            }),
+        },
+        status: 201,
+    });
 });
 
 const getAllOrders = asyncWrapper(async (req, res) => {
@@ -305,7 +216,7 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
         orderedOn: order.createdAt,
         isLocalPartner: order.isLocalPartner,
         companyName: customer?.companyName || null,
-        LocalPartnerName: partner ? partner.name : null,
+        localPartnerName: partner?.name || null,
         email: order.isLocalPartner ? partner?.email : customer?.email || null,
         address: order.isLocalPartner
             ? `${partner?.shippingAddressLine1 || ""}, ${partner?.shippingCity || ""}, ${partner?.shippingState || ""}`
@@ -318,13 +229,11 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
         subtotal: `$${parseFloat(order.subtotal).toFixed(2)}`,
         shippingCharges: `$${parseFloat(order.shippingCharges).toFixed(2)}`,
         total: `$${parseFloat(order.total).toFixed(2)}`,
-
         profitBreakdown: order.profit ? {
             orderTotal: `$${parseFloat(order.profit.orderTotal).toFixed(2)}`,
             adminReceives: `$${parseFloat(order.profit.adminReceives).toFixed(2)}`,
             partnerProfit: `$${parseFloat(order.profit.partnerProfit).toFixed(2)}`,
         } : null,
-
         deliverTo: order.isLocalPartner ? {
             address: partner?.shippingAddressLine1 || null,
             addressLine2: partner?.shippingAddressLine2 || null,
@@ -344,7 +253,6 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             phone: `${customer?.phoneCode || ""} ${customer?.phone || ""}`,
             email: customer?.email || null,
         },
-
         invoiceTo: order.isLocalPartner ? {
             companyName: partner?.name || null,
             address: partner?.billingSameAsShipping ? partner?.shippingAddressLine1 : partner?.billingAddressLine1 || null,
@@ -364,7 +272,6 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             phone: `${customer?.phoneCode || ""} ${customer?.phone || ""}`,
             email: customer?.email || null,
         },
-
         items: order.items.map((item) => ({
             code: item.product?.productCode || null,
             sku: item.product?.sku || null,
@@ -374,7 +281,6 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             unitPrice: `$${parseFloat(item.price).toFixed(2)}`,
             total: `$${(parseFloat(item.price) * item.quantity).toFixed(2)}`,
         })),
-
         tracking: order.tracking
             .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
             .map((t) => ({
