@@ -1,4 +1,5 @@
 
+
 const { sequelize } = require("../config/db");
 const { Order, OrderItem, Product, OrderTracking, Customer } = require("../models/index");
 const LocalPartner = require("../models/LocalPartner");
@@ -117,16 +118,15 @@ const createOrder = asyncWrapper(async (req, res) => {
             subtotal, shippingCharges, total,
         }, { transaction: t });
 
-        for (const {  productId,quantity, sellingPrice } of itemsData) {
-            await OrderItem.create({
+        await Promise.all(itemsData.map(({productId, quantity, sellingPrice}) => {
+            OrderItem.create({
                 orderId: order.id,
                 productId: productId,
                 quantity,
                 unitPrice: sellingPrice,
                 total: sellingPrice * quantity
-            }, { transaction: t });
-        }
-
+            }, {transaction: t})
+        }))
         if (isAdminOrder && partner) {
             await OrderProfit.create({
                 orderId: order.id,
