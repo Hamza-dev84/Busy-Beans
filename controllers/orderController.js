@@ -1,15 +1,20 @@
 
-
 const { sequelize } = require("../config/db");
 const { Order, OrderItem, Product, OrderTracking, Customer } = require("../models/index");
 const LocalPartner = require("../models/LocalPartner");
-const PartnerProduct = require("../models/PartnerProduct");
 const OrderProfit = require("../models/OrderProfit");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
-const { Op } = require("sequelize");
-
-const SHIPPING_RATE = 0.2;
+const {
+    fetchProducts,
+    calculateTotals,
+    fetchPartner,
+    fetchSelectedCustomer,
+    createOrderRecord,
+    createOrderItems,
+    createOrderProfit,
+    createOrderTracking,
+} = require("../services/orderService");
 
 const formatLabel = (status) => {
     const labels = {
@@ -29,7 +34,7 @@ const createOrder = asyncWrapper(async (req, res) => {
         return errorResponse({ res, message: "orderObj and items are required", status: 400 });
     }
 
-    const { paymentMethod, orderFrequency, note, purchaseOrderNumber, localPartnerId, customerId, isAdminPartnerOrder } = orderObj;
+    const { paymentMethod, orderFrequency, localPartnerId, customerId, isAdminPartnerOrder, isLocalPartner } = orderObj;
 
     if (!paymentMethod || !orderFrequency) {
         return errorResponse({ res, message: "paymentMethod and orderFrequency are required", status: 400 });
@@ -42,109 +47,41 @@ const createOrder = asyncWrapper(async (req, res) => {
     }
 
     const isAdminOrder = isAdminPartnerOrder === true;
+    const isPartnerOrder = isLocalPartner === true;
     const prodIds = items.map(item => item.productId);
 
-    const Model = isAdminOrder ? PartnerProduct : Product;
-    const productCondition = isAdminOrder
-        ? { productId: { [Op.in]: prodIds }, partnerId: localPartnerId }
-        : { id: { [Op.in]: prodIds } };
-
-    const products = await Model.findAll({
-        where: productCondition
-    });
-
-
+    const products = await fetchProducts(isAdminOrder, prodIds, localPartnerId);
     if (products.length !== prodIds.length) {
         return errorResponse({ res, message: "One or more products not found or not assigned to this partner", status: 404 });
     }
 
-    let subtotal = 0;
-    let wholeSaleTotal = 0;
-    const itemsData = [];
-
-    for (const item of items) {
-        const found = isAdminOrder
-            ? products.find(p => p.productId === item.productId)
-            : products.find(p => p.id === item.productId);
-
-        const sellingPrice = isAdminOrder
-            ?  parseFloat(found.sellingPrice || 0)
-            : parseFloat(found.price || 0);
-
-        const wsPrice = isAdminOrder
-            ?  parseFloat(found.wholesalePrice || 0)
-            : parseFloat(found.wholeSalePrice || 0);
-
-        subtotal += sellingPrice * item.quantity;
-        if (isAdminOrder) wholeSaleTotal += wsPrice * item.quantity;
-
-        itemsData.push({
-            productId:found.productId || found?.id,
-            quantity: item.quantity,
-            sellingPrice,
-        });
-    }
-
-    const shippingCharges = parseFloat((subtotal * SHIPPING_RATE).toFixed(2));
-    const total = parseFloat((subtotal + shippingCharges).toFixed(2));
-
-    let partner = null;
-    let selectedCustomer = customer;
+    const totals = calculateTotals(isAdminOrder, isPartnerOrder, items, products);
 
     if (isAdminOrder) {
         if (!localPartnerId) return errorResponse({ res, message: "localPartnerId is required", status: 400 });
         if (!customerId) return errorResponse({ res, message: "customerId is required", status: 400 });
-
-        partner = await LocalPartner.findByPk(localPartnerId);
-        if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 });
-
-        selectedCustomer = await Customer.findOne({ where: { id: customerId, localPartnerId: partner.id } });
-        if (!selectedCustomer) return errorResponse({ res, message: "Customer does not belong to this partner", status: 403 });
-    } else if (customer.localPartnerId) {
-        partner = await LocalPartner.findByPk(customer.localPartnerId);
     }
 
-    const adminReceives = isAdminOrder ? parseFloat((wholeSaleTotal + shippingCharges).toFixed(2)) : null;
-    const partnerProfit = isAdminOrder ? parseFloat((total - adminReceives).toFixed(2)) : null;
+    if (isPartnerOrder && !localPartnerId) {
+        return errorResponse({ res, message: "localPartnerId is required", status: 400 });
+    }
+
+    const partner = (isAdminOrder || isPartnerOrder)
+        ? await fetchPartner(true, localPartnerId, customer)
+        : null;
+
+    if ((isAdminOrder || isPartnerOrder) && !partner) {
+        return errorResponse({ res, message: "Partner not found", status: 404 });
+    }
+
+    const selectedCustomer = await fetchSelectedCustomer(isAdminOrder, customerId, partner?.id, customer);
+    if (isAdminOrder && !selectedCustomer) return errorResponse({ res, message: "Customer does not belong to this partner", status: 403 });
 
     const { order } = await sequelize.transaction(async (t) => {
-        const order = await Order.create({
-            customerId: selectedCustomer?.id || null,
-            localPartnerId: partner?.id || null,
-            isLocalPartner: !!partner,
-            paymentMethod, orderFrequency,
-            noteForSupplier: note || null,
-            purchaseOrderNumber: purchaseOrderNumber || null,
-            subtotal, shippingCharges, total,
-        }, { transaction: t });
-
-        await Promise.all(itemsData.map(({productId, quantity, sellingPrice}) => {
-            OrderItem.create({
-                orderId: order.id,
-                productId: productId,
-                quantity,
-                unitPrice: sellingPrice,
-                total: sellingPrice * quantity
-            }, {transaction: t})
-        }))
-        if (isAdminOrder && partner) {
-            await OrderProfit.create({
-                orderId: order.id,
-                partnerId: partner.id,
-                orderTotal: total,
-                wholeSaleTotal,
-                shippingCharges,
-                adminReceives,
-                partnerProfit,
-            }, { transaction: t });
-        }
-
-        await OrderTracking.create({
-            orderId: order.id,
-            status: "order_placed",
-            timestamp: new Date(),
-        }, { transaction: t });
-
+        const order = await createOrderRecord(selectedCustomer, partner, orderObj, totals, isAdminOrder, isPartnerOrder, t);
+        await createOrderItems(order.id, totals.itemsData, t);
+        if (isAdminOrder && partner) await createOrderProfit(order.id, partner, totals, t);
+        await createOrderTracking(order.id, t);
         return { order };
     });
 
@@ -154,23 +91,25 @@ const createOrder = asyncWrapper(async (req, res) => {
             order: {
                 ...order.toJSON(),
                 ...(partner && { partner: { name: partner.name, email: partner.email } }),
-                customer: {
-                    companyName: selectedCustomer?.companyName,
-                    email: selectedCustomer?.email,
-                    address: `${selectedCustomer?.addressLine1 || ""}, ${selectedCustomer?.city || ""}, ${selectedCustomer?.state || ""}`,
-                },
+                ...(!isPartnerOrder && selectedCustomer && {
+                    customer: {
+                        companyName: selectedCustomer.companyName,
+                        email: selectedCustomer.email,
+                        address: `${selectedCustomer.addressLine1 || ""}, ${selectedCustomer.city || ""}, ${selectedCustomer.state || ""}`,
+                    },
+                }),
             },
             summary: {
-                subtotal: `$${subtotal.toFixed(2)}`,
-                shippingCharges: `$${shippingCharges.toFixed(2)}`,
-                total: `$${total.toFixed(2)}`,
-                ...(isAdminOrder && { wholeSaleTotal: `$${wholeSaleTotal.toFixed(2)}` }),
+                subtotal: `$${totals.subtotal.toFixed(2)}`,
+                shippingCharges: `$${totals.shippingCharges.toFixed(2)}`,
+                total: `$${totals.total.toFixed(2)}`,
+                ...(isAdminOrder && { wholeSaleTotal: `$${totals.wholeSaleTotal.toFixed(2)}` }),
             },
             ...(isAdminOrder && partner && {
                 profitBreakdown: {
-                    orderTotal: `$${total.toFixed(2)}`,
-                    adminReceives: `$${adminReceives.toFixed(2)}`,
-                    partnerProfit: `$${partnerProfit.toFixed(2)}`,
+                    orderTotal: `$${totals.total.toFixed(2)}`,
+                    adminReceives: `$${totals.adminReceives.toFixed(2)}`,
+                    partnerProfit: `$${totals.partnerProfit.toFixed(2)}`,
                 }
             }),
         },
@@ -183,6 +122,22 @@ const getAllOrders = asyncWrapper(async (req, res) => {
         include: [{ model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }],
         order: [["createdAt", "DESC"]],
     });
+    return successResponse({ res, data: orders, message: "Orders fetched successfully", status: 200 });
+});
+
+const getOrdersByStatus = asyncWrapper(async (req, res) => {
+    const { status } = req.query;
+
+    const validStatuses = ["order_placed", "dispatched_to_supplier", "supplier_acknowledged", "shipped"];
+    if (status && !validStatuses.includes(status)) {
+        return errorResponse({ res, message: "Invalid Status", status: 400 });
+    }
+
+    const whereCondition = status ? { currentStatus: status } : {};
+    const orders = await Order.findAll({
+        where: whereCondition,
+        include: [{ model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }]
+    })
     return successResponse({ res, data: orders, message: "Orders fetched successfully", status: 200 });
 });
 
@@ -277,8 +232,8 @@ const getOrderDetail = asyncWrapper(async (req, res) => {
             name: item.product?.name || null,
             grind: item.product?.grind || null,
             quantity: item.quantity,
-            unitPrice: `$${parseFloat(item.price).toFixed(2)}`,
-            total: `$${(parseFloat(item.price) * item.quantity).toFixed(2)}`,
+            unitPrice: `$${parseFloat(item.unitPrice).toFixed(2)}`,
+            total: `$${parseFloat(item.total).toFixed(2)}`,
         })),
         tracking: order.tracking
             .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
@@ -302,4 +257,4 @@ const deleteOrder = asyncWrapper(async (req, res) => {
     return successResponse({ res, data: null, message: "Order deleted successfully", status: 200 });
 });
 
-module.exports = { createOrder, getAllOrders, getOrder, getOrderDetail, deleteOrder };
+module.exports = { createOrder, getAllOrders, getOrder, getOrdersByStatus ,getOrderDetail, deleteOrder };

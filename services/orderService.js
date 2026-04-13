@@ -1,7 +1,5 @@
-
-
-
-const { Op } = require("sequelize");
+﻿
+const { Op, literal } = require("sequelize");
 const { Order, OrderItem, OrderProfit, OrderTracking, Customer, Product } = require("../models/index");
 const LocalPartner = require("../models/LocalPartner");
 const PartnerProduct = require("../models/PartnerProduct");
@@ -16,7 +14,8 @@ const fetchProducts = (isAdminOrder, prodIds, localPartnerId) => {
     return Model.findAll({ where: condition });
 };
 
-const calculateTotals = (isAdminOrder, items, products) => {
+
+const calculateTotals = (isAdminOrder, isPartnerOrder, items, products) => {
     let subtotal = 0;
     let wholeSaleTotal = 0;
     const itemsData = [];
@@ -26,8 +25,15 @@ const calculateTotals = (isAdminOrder, items, products) => {
             ? products.find(p => p.productId === item.productId)
             : products.find(p => p.id === item.productId);
 
-        const sellingPrice = parseFloat(isAdminOrder ? found.sellingPrice || 0 : found.price || 0);
-        const wsPrice = parseFloat(isAdminOrder ? found.wholesalePrice || 0 : found.wholeSalePrice || 0);
+        const sellingPrice = parseFloat(
+            isAdminOrder ? found.sellingPrice || 0 :
+            isPartnerOrder ? found.wholeSalePrice || 0 :
+            found.price || 0
+        );
+
+        const wsPrice = parseFloat(isAdminOrder
+            ? found.wholesalePrice || 0
+            : found.wholeSalePrice || 0);
 
         subtotal += sellingPrice * item.quantity;
         if (isAdminOrder) wholeSaleTotal += wsPrice * item.quantity;
@@ -58,11 +64,11 @@ const fetchSelectedCustomer = (isAdminOrder, customerId, partnerId, customer) =>
     return customer;
 };
 
-const createOrderRecord = (selectedCustomer, partner, orderObj, totals, t) =>
+const createOrderRecord = (selectedCustomer, partner, orderObj, totals, isAdminOrder, isPartnerOrder, t) =>
     Order.create({
-        customerId: selectedCustomer?.id || null,
-        localPartnerId: partner?.id || null,
-        isLocalPartner: !!partner,
+        customerId: isAdminOrder ? selectedCustomer?.id || null : (isPartnerOrder ? null : selectedCustomer?.id || null),
+        localPartnerId: (isAdminOrder || isPartnerOrder) ? partner?.id || null : null,
+        isLocalPartner: (isAdminOrder || isPartnerOrder) ? !!partner : false,
         paymentMethod: orderObj.paymentMethod,
         orderFrequency: orderObj.orderFrequency,
         noteForSupplier: orderObj.note || null,
@@ -72,16 +78,14 @@ const createOrderRecord = (selectedCustomer, partner, orderObj, totals, t) =>
         total: totals.total,
     }, { transaction: t });
 
-const createOrderItems = (orderId, itemsData, t) =>
-    Promise.all(itemsData.map(({ productId, quantity, sellingPrice }) =>
-        OrderItem.create({
-            orderId,
-            productId,
-            quantity,
-            unitPrice: sellingPrice,
-            total: sellingPrice * quantity,
-        }, { transaction: t })
-    ));
+    const createOrderItems = (orderId, itemsData, t) =>{
+        itemsData.forEach(element => {
+            element.orderId = orderId
+            element.total =  element?.sellingPrice * element?.quantity
+            element.unitPrice = element.sellingPrice
+        });
+        OrderItem.bulkCreate(itemsData)
+    }
 
 const createOrderProfit = (orderId, partner, totals, t) =>
     OrderProfit.create({

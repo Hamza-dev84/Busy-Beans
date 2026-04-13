@@ -34,7 +34,7 @@ app.use("/partner-products", partnerProductRoutes);
 app.use(errorHandler);
 
 connectDB();
-sequelize.sync({ alter: true });
+sequelize.sync({ alter: false });
 
 const PORT = process.env.PORT;
 
