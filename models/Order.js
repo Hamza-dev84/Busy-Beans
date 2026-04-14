@@ -74,7 +74,8 @@ const Order = sequelize.define("order", {
             "order_placed",
             "dispatched_to_supplier",
             "supplier_acknowledged",
-            "shipped"
+            "shipped",
+            "cancelled"
         ),
         defaultValue: "order_placed"
     },

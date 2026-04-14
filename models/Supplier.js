@@ -3,7 +3,7 @@ const { DataTypes } = require("sequelize");
 const { sequelize } = require("../config/db");
 const bcrypt = require("bcrypt");
 
-const LocalPartner = sequelize.define("local_partner", {
+const Supplier = sequelize.define("supplier", {
   id: { 
     type: DataTypes.INTEGER, 
     autoIncrement: true, 
@@ -20,17 +20,22 @@ const LocalPartner = sequelize.define("local_partner", {
     }
   },
 
-  Image: {
+  image: {
     type: DataTypes.STRING,
     allowNull: true
   },
 
-  partnerType: { 
+  business_website: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+
+  supplierType: { 
     type: DataTypes.STRING, 
     allowNull: false,
     validate: {
       notNull: {
-        msg: "Partner Type cannot be empty"
+        msg: "Supplier Type cannot be empty"
       }
     } 
   },
@@ -40,9 +45,9 @@ const LocalPartner = sequelize.define("local_partner", {
     defaultValue: "active" 
   },
 
-  creditLimit: { 
-    type: DataTypes.DECIMAL(10, 2), 
-    defaultValue: 0 
+  registerDate: {
+    type: DataTypes.DATE,
+    allowNull: false
   },
 
   country: { 
@@ -64,6 +69,7 @@ const LocalPartner = sequelize.define("local_partner", {
       }
      }
   },
+
   city: { 
     type: DataTypes.STRING, 
     allowNull: false,
@@ -73,6 +79,7 @@ const LocalPartner = sequelize.define("local_partner", {
       }
      }
   },
+
   zipCode: { 
     type: DataTypes.STRING, 
     allowNull: false,
@@ -82,18 +89,35 @@ const LocalPartner = sequelize.define("local_partner", {
       }
      } 
   },
-  address: { 
+
+  address1: { 
     type: DataTypes.STRING, 
     allowNull: false,
     validate: {
       notNull: {
-        msg: "Address cannot be empty"
+        msg: "Address 1 cannot be empty"
       }
      } 
   },
 
-  title: { 
-    type: DataTypes.STRING 
+  address2: { 
+    type: DataTypes.STRING, 
+    allowNull: false,
+    validate: {
+      notNull: {
+        msg: "Address 2 cannot be empty"
+      }
+     } 
+  },
+
+  countryCode: { 
+    type: DataTypes.STRING, 
+    allowNull: false,
+    validate: {
+      notNull: {
+        msg: "Country code cannot be empty"
+      }
+     } 
   },
 
   phone: { 
@@ -106,6 +130,15 @@ const LocalPartner = sequelize.define("local_partner", {
      } 
   },
 
+  bankAccountDetail: { 
+    type: DataTypes.STRING, 
+    allowNull: false,
+    validate: {
+      notNull: {
+        msg: "bank Account Detail cannot be empty"
+      }
+     } 
+  },
 
   email: { 
     type: DataTypes.STRING, 
@@ -128,80 +161,10 @@ const LocalPartner = sequelize.define("local_partner", {
      } 
   },
 
-  shippingAddressLine1: { 
-    type: DataTypes.STRING, 
-    allowNull: false,
-    validate: {
-      notNull: {
-        msg: "Shipping Address Line 1 cannot be empty"
-      }
-     } 
-  },
-
-  shippingAddressLine2: { 
-    type: DataTypes.STRING,
-    allowNull: false,
-    validate: {
-      notNull: {
-        msg: "Shipping Address Line 2 cannot be empty"
-      }
-     }  
-  },
-
-  shippingCountry: { 
-    type: DataTypes.STRING, 
-    allowNull: false,
-    validate: {
-      notNull: {
-        msg: "Shipping Country cannot be empty"
-      }
-     }  
-  },
-
-  shippingState: { 
-    type: DataTypes.STRING, 
-    allowNull: false,
-    validate: {
-      notNull: {
-        msg: "Shipping State cannot be empty"
-      }
-     }  
-  },
-
-  shippingCity: { 
-    type: DataTypes.STRING, 
-    allowNull: false,
-    validate: {
-      notNull: {
-        msg: "Shipping City cannot be empty"
-      }
-     }  
-  },
-
-  shippingZipCode: { 
-    type: DataTypes.STRING, 
-    allowNull: false,
-    validate: {
-      notNull: {
-        msg: "Shipping Address Zip Code cannot be empty"
-      }
-     } 
-  },
-
-  
-  billingSameAsShipping: { type: DataTypes.BOOLEAN, defaultValue: true },
-  billingAddressLine1: { type: DataTypes.STRING },
-  billingAddressLine2: { type: DataTypes.STRING },
-  billingCountry: { type: DataTypes.STRING },
-  billingState: { type: DataTypes.STRING },
-  billingCity: { type: DataTypes.STRING },
-  billingZipCode: { type: DataTypes.STRING },
-
 }, { timestamps: true });
 
-LocalPartner.beforeCreate(async (partner) => {
-  partner.password = await bcrypt.hash(partner.password, 10);
+Supplier.beforeCreate(async (supplier) => {
+  supplier.password = await bcrypt.hash(supplier.password, 10);
 });
 
-
-module.exports = LocalPartner;
+module.exports = Supplier;

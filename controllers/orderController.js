@@ -5,6 +5,7 @@ const LocalPartner = require("../models/LocalPartner");
 const OrderProfit = require("../models/OrderProfit");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
+const { Op } = require("sequelize");
 const {
     fetchProducts,
     calculateTotals,
@@ -128,7 +129,7 @@ const getAllOrders = asyncWrapper(async (req, res) => {
 const getOrdersByStatus = asyncWrapper(async (req, res) => {
     const { status } = req.query;
 
-    const validStatuses = ["order_placed", "dispatched_to_supplier", "supplier_acknowledged", "shipped"];
+    const validStatuses = ["order_placed", "dispatched_to_supplier", "supplier_acknowledged", "shipped", "cancelled"];
     if (status && !validStatuses.includes(status)) {
         return errorResponse({ res, message: "Invalid Status", status: 400 });
     }
@@ -148,6 +149,32 @@ const getOrder = asyncWrapper(async (req, res) => {
     if (!order) return errorResponse({ res, message: "Order not found", status: 404 });
     return successResponse({ res, data: order, message: "Order fetched successfully", status: 200 });
 });
+
+const getPartnerOrders = asyncWrapper(async (req, res) => {
+    const orders = await Order.findAll({
+        where: {
+            isLocalPartner: true,
+            customerId: null
+        },
+        include: [{ model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] },
+        { model: LocalPartner, as: "partner" }
+        ]
+    })
+
+    return successResponse({ res, data: orders, message: "Partner orders fetched successfuly", status: 200 });
+})
+
+const getPartnerOrderDetail = asyncWrapper(async (req, res) => {
+    const order = await Order.findByPk(req.params.id, {
+        include: [
+            {model: OrderItem, as: "items", include: [{model: Product, as: "product"}]},
+            {model: OrderTracking, as: "tracking"},
+            {model: LocalPartner, as: "partner"}
+        ]
+    })
+
+    return successResponse({res, data: order, message: "Partner order detail fetched", status: 200 })
+})
 
 const getOrderDetail = asyncWrapper(async (req, res) => {
     const order = await Order.findByPk(req.params.id, {
@@ -257,4 +284,13 @@ const deleteOrder = asyncWrapper(async (req, res) => {
     return successResponse({ res, data: null, message: "Order deleted successfully", status: 200 });
 });
 
-module.exports = { createOrder, getAllOrders, getOrder, getOrdersByStatus ,getOrderDetail, deleteOrder };
+module.exports = {
+    createOrder,
+    getAllOrders,
+    getOrder,
+    getOrdersByStatus,
+    getOrderDetail,
+    deleteOrder,
+    getPartnerOrders,
+    getPartnerOrderDetail
+};
