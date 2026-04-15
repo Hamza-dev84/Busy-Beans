@@ -127,16 +127,30 @@ const getAllOrders = asyncWrapper(async (req, res) => {
 });
 
 const getOrdersByStatus = asyncWrapper(async (req, res) => {
-    const { status } = req.query;
+    let { status } = req.params;
 
-    const validStatuses = ["order_placed", "dispatched_to_supplier", "supplier_acknowledged", "shipped", "cancelled"];
-    if (status && !validStatuses.includes(status)) {
+    const statusMap = {
+        placed: "order_placed",
+        dispatched: "dispatched_to_supplier",
+        acknowledged: "supplier_acknowledged",
+        shipped: "shipped",
+        cancelled: "cancelled"
+    }
+
+    const validStatuses = [
+        "order_placed",
+        "dispatched_to_supplier",
+        "supplier_acknowledged",
+        "shipped", "cancelled"
+    ];
+
+    status = statusMap[status] || status;
+    if (!validStatuses.includes(status)) {
         return errorResponse({ res, message: "Invalid Status", status: 400 });
     }
 
-    const whereCondition = status ? { currentStatus: status } : {};
     const orders = await Order.findAll({
-        where: whereCondition,
+        where: { currentStatus: status },
         include: [{ model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }]
     })
     return successResponse({ res, data: orders, message: "Orders fetched successfully", status: 200 });
@@ -167,13 +181,50 @@ const getPartnerOrders = asyncWrapper(async (req, res) => {
 const getPartnerOrderDetail = asyncWrapper(async (req, res) => {
     const order = await Order.findByPk(req.params.id, {
         include: [
-            {model: OrderItem, as: "items", include: [{model: Product, as: "product"}]},
-            {model: OrderTracking, as: "tracking"},
-            {model: LocalPartner, as: "partner"}
+            { model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] },
+            { model: OrderTracking, as: "tracking" },
+            { model: LocalPartner, as: "partner" }
         ]
     })
 
-    return successResponse({res, data: order, message: "Partner order detail fetched", status: 200 })
+    return successResponse({ res, data: order, message: "Partner order detail fetched", status: 200 })
+})
+
+const getPartnerOrdersByStatus = asyncWrapper(async (req, res) => {
+    let {status} = req.params;
+    const statusMap = {
+        placed: "order_placed",
+        dispatched: "dispatched_to_supplier",
+        acknowledged: "supplier_acknowledged",
+        shipped: "shipped",
+        cancelled: "cancelled"
+    }
+
+    const validStatuses = [
+        "order_placed",
+        "dispatched_to_supplier",
+        "supplier_acknowledged",
+        "shipped",
+        "cancelled"
+    ]
+
+    status = statusMap[status] || status;
+
+    if(!validStatuses.includes(status)){
+        return errorResponse({res, message: "Invalid status", status: 400});
+    }
+
+    const orders = await Order.findAll({
+        where: {
+            currentStatus: status,
+            isLocalPartner: true,
+            customerId: null
+        },
+        include: [{model: OrderItem, as: "items", include: [{model: Product, as: "product"}]}]
+    })
+
+    return successResponse({res, data: orders, message: "Partner orders fetched", status: 200})
+
 })
 
 const getOrderDetail = asyncWrapper(async (req, res) => {
@@ -292,5 +343,6 @@ module.exports = {
     getOrderDetail,
     deleteOrder,
     getPartnerOrders,
-    getPartnerOrderDetail
+    getPartnerOrderDetail,
+    getPartnerOrdersByStatus
 };
