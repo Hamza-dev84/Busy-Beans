@@ -1,6 +1,7 @@
 
 const { sequelize } = require("../config/db");
 const { Order, OrderTracking } = require("../models/index");
+const Supplier = require("../models/Supplier");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 
@@ -29,7 +30,7 @@ const formatLabel = (status) => {
 
 
 const updateOrderStatus = asyncWrapper(async (req, res) => {
-  const { status } = req.body;
+  const { status, supplierId } = req.body;
 
   if (!status) {
     return errorResponse({ res, message: "Status is required", status: 400 });
@@ -51,6 +52,14 @@ const updateOrderStatus = asyncWrapper(async (req, res) => {
   });
   if (alreadyExists) {
     return errorResponse({ res, message: `Status "${status}" already set`, status: 409 });
+  }
+
+  if(status === "dispatched_to_supplier"){
+    if(!supplierId) return errorResponse(
+      {res, message: "Supplier id is required when dispatching to supplier", status: 400});
+      const supplier = await Supplier.findByPk(supplierId);
+      if(!supplier) return errorResponse({res, message: "Supplier not found", status: 400});
+      await order.update({supplierId: supplier.id});
   }
 
   const { tracking } = await sequelize.transaction(async (t) => {

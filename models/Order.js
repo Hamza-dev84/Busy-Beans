@@ -14,6 +14,11 @@ const Order = sequelize.define("order", {
         allowNull: true
     },
 
+    supplierId: {
+        type: DataTypes.INTEGER,
+        allowNull: true
+    },
+
     localPartnerId: {
         type: DataTypes.INTEGER,
         allowNull: true

@@ -10,6 +10,7 @@ const Invoice = require("./Invoice");
 const InvoiceItem = require("./InvoiceItem");
 const PartnerProduct = require("./PartnerProduct");
 const OrderProfit = require("./OrderProfit");
+const Supplier = require("./Supplier");
 
 Order.hasMany(OrderItem, { foreignKey: "orderId", as: "items" });
 OrderItem.belongsTo(Order, { foreignKey: "orderId" });
@@ -38,6 +39,9 @@ Product.hasMany(PartnerProduct, { foreignKey: "productId", as: "partnerProducts"
 Order.hasOne(OrderProfit, { foreignKey: "orderId", as: "profit" });
 OrderProfit.belongsTo(Order, { foreignKey: "orderId" });
 OrderProfit.belongsTo(LocalPartner, { foreignKey: "partnerId", as: "partner" });
+
+Order.belongsTo(Supplier, {foreignKey: "supplierId", as: "supplier"});
+Supplier.hasMany(Order, {foreignKey: "supplierId", as: "orders"});
 
 module.exports = {
     Order, OrderItem, Product, Admin, OrderTracking,

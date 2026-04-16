@@ -5,7 +5,7 @@ const { successResponse, errorResponse } = require("../utilities/responseHandler
 
 
 const getAllSuppliers = asyncWrapper(async (req, res) => {
-    const suppliers = await Supplier.findAll({ order: [["createdAt", "DESC"]] });
+    const suppliers = await Supplier.findAll({ order: [["createdAt", "DESC"]]});
     return successResponse({ res, data: suppliers, message: "Suppliers fetched", status: 200 });
 });
 
