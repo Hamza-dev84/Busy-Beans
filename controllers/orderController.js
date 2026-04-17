@@ -7,7 +7,7 @@ const Supplier = require("../models/Supplier");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 const { Op } = require("sequelize");
-const {getPagination, getPaginationMeta} = require("../services/paginationService");
+const {getPagination, getPaginationData} = require("../services/paginationService");
 const {
     fetchProducts,
     calculateTotals,
@@ -120,15 +120,32 @@ const createOrder = asyncWrapper(async (req, res) => {
     });
 });
 
-
 const getAllOrders = asyncWrapper(async (req, res) => {
-    const { customerId, supplierId, localPartnerId, currentStatus, status, isLocalPartner,
-        paymentMethod, orderFrequency, page = 1, limit = 10 } = req.query;
+    const {
+        customerId,
+        supplierId,
+        localPartnerId,
+        currentStatus,
+        status,
+        isLocalPartner,
+        paymentMethod,
+        orderFrequency,
+        page,
+        limit
+    } = req.query;
 
     let filter = {};
 
+    
     if (currentStatus) {
-        const validCurrentStatuses = ["order_placed", "dispatched_to_supplier", "supplier_acknowledged", "shipped", "cancelled"];
+        const validCurrentStatuses = [
+            "order_placed",
+            "dispatched_to_supplier",
+            "supplier_acknowledged",
+            "shipped",
+            "cancelled"
+        ];
+
         const normalized = currentStatus.toLowerCase();
         if (!validCurrentStatuses.includes(normalized)) {
             return errorResponse({ res, message: "Invalid currentStatus", status: 400 });
@@ -145,41 +162,47 @@ const getAllOrders = asyncWrapper(async (req, res) => {
         filter.status = normalized;
     }
 
+    
     if (customerId) filter.customerId = customerId;
     if (supplierId) filter.supplierId = supplierId;
     if (localPartnerId) filter.localPartnerId = localPartnerId;
-    if (isLocalPartner !== undefined) filter.isLocalPartner = isLocalPartner === "true";
+
+    if (isLocalPartner !== undefined) {
+        filter.isLocalPartner = isLocalPartner === "true";
+    }
+
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (orderFrequency) filter.orderFrequency = orderFrequency;
 
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-    const offset = (pageNumber - 1) * limitNumber;
+    
+    const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
     const { count, rows } = await Order.findAndCountAll({
         where: filter,
         include: [
-            { model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }
+            {
+                model: OrderItem,
+                as: "items",
+                include: [{ model: Product, as: "product" }]
+            }
         ],
         order: [["createdAt", "DESC"]],
         limit: limitNumber,
         offset: offset,
-        distinct: true, 
+        distinct: true
     });
+
+    
+    const pagination = getPaginationData(count, rows, pageNumber, limitNumber);
 
     return successResponse({
         res,
         message: "Orders fetched successfully",
         data: {
             orders: rows,
-            pagination: {
-                totalOrders: count,
-                totalPages: Math.ceil(count / limitNumber),
-                currentPage: pageNumber,
-                limit: limitNumber,
-            }
+            pagination
         },
-        status: 200,
+        status: 200
     });
 });
 
@@ -217,9 +240,7 @@ const getPartnerOrders = asyncWrapper(async (req, res) => {
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (orderFrequency) filter.orderFrequency = orderFrequency;
 
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-    const offset = (pageNumber - 1) * limitNumber;
+    const {pageNumber, limitNumber, offset} = getPagination(page, limit);
 
     const {count, rows} = await Order.findAndCountAll({
         where: filter,
@@ -231,17 +252,14 @@ const getPartnerOrders = asyncWrapper(async (req, res) => {
         distinct: true
     })
 
+    const pagination = getPaginationData(count, rows, pageNumber, limitNumber);
+
     return successResponse({
         res, 
         message: "Orders fetched successfuly",
         data: {
             orders: rows, 
-            pagination: {
-                totalOrders: count,
-                totalPages: Math.ceil(count / limitNumber),
-                currentPage: pageNumber,
-                limit: limitNumber
-            }
+            pagination
         },
         status: 200
     })

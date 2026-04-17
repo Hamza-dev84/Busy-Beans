@@ -1,25 +1,19 @@
 
-// const getPagination = (page, limit) => {
-//     const pageNumber = parseInt(page);
-//     const limitNumber = parseInt(limit);
-//     const offset = (pageNumber - 1) * limitNumber;
+const getPagination = (page, limit) => {
+    const pageNumber = parseInt(page) || 1;
+    const limitNumber = parseInt(limit) || 10;
+    const offset = (pageNumber - 1) * limitNumber;
+    return { pageNumber, limitNumber, offset };
+};
 
-//     return { pageNumber, limitNumber, offset };
-// }
+const getPaginationData = (count, rows, pageNumber, limitNumber) => ({
+    orders: rows,
+    pagination: {
+        totalOrders: count,
+        totalPages: Math.ceil(count / limitNumber),
+        currentPage: pageNumber,
+        limit: limitNumber,
+    }
+});
 
-// const getPaginationMeta = (count, pageNumber, limitNumber) => {
-//     const totalPages = Math.ceil(count / limitNumber);
-
-//     return{
-//         totalRecords: count,
-//         totalPages,
-//         currentPage: pageNumber,
-//         limit: limitNumber,
-//         hasNextPage: pageNumber < totalPages,
-//         hasPrevPage: pageNumber > 1
-//     }
-// }
-
-// module.exports = {
-//     getPagination, getPaginationMeta
-// }
+module.exports = { getPagination, getPaginationData };
