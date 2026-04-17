@@ -7,6 +7,7 @@ const Supplier = require("../models/Supplier");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 const { Op } = require("sequelize");
+const {getPagination, getPaginationMeta} = require("../services/paginationService");
 const {
     fetchProducts,
     calculateTotals,
@@ -119,22 +120,18 @@ const createOrder = asyncWrapper(async (req, res) => {
     });
 });
 
+
 const getAllOrders = asyncWrapper(async (req, res) => {
     const { customerId, supplierId, localPartnerId, currentStatus, status, isLocalPartner,
-        paymentMethod, orderFrequency } = req.query;
-    let filter = {};
-    if (currentStatus) {
-        const validCurrentStatuses = [
-            "order_placed",
-            "dispatched_to_supplier",
-            "supplier_acknowledged",
-            "shipped",
-            "cancelled"
-        ]
+        paymentMethod, orderFrequency, page = 1, limit = 10 } = req.query;
 
+    let filter = {};
+
+    if (currentStatus) {
+        const validCurrentStatuses = ["order_placed", "dispatched_to_supplier", "supplier_acknowledged", "shipped", "cancelled"];
         const normalized = currentStatus.toLowerCase();
         if (!validCurrentStatuses.includes(normalized)) {
-            return errorResponse({ res, message: "Invalid currentStatus", status: 401 });
+            return errorResponse({ res, message: "Invalid currentStatus", status: 400 });
         }
         filter.currentStatus = normalized;
     }
@@ -151,35 +148,44 @@ const getAllOrders = asyncWrapper(async (req, res) => {
     if (customerId) filter.customerId = customerId;
     if (supplierId) filter.supplierId = supplierId;
     if (localPartnerId) filter.localPartnerId = localPartnerId;
-
-    if (isLocalPartner !== undefined) {
-        filter.isLocalPartner = isLocalPartner === "true";
-    }
-
+    if (isLocalPartner !== undefined) filter.isLocalPartner = isLocalPartner === "true";
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (orderFrequency) filter.orderFrequency = orderFrequency;
 
-    const orders = await Order.findAll({
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const offset = (pageNumber - 1) * limitNumber;
+
+    const { count, rows } = await Order.findAndCountAll({
         where: filter,
         include: [
             { model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }
-        ]
-    })
-
-    return successResponse({ res, data: orders, message: "Orders fetched successfuly", status: 200 });
-})
-
-const getOrder = asyncWrapper(async (req, res) => {
-    const order = await Order.findByPk(req.params.id, {
-        include: [{ model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }],
+        ],
+        order: [["createdAt", "DESC"]],
+        limit: limitNumber,
+        offset: offset,
+        distinct: true, 
     });
-    if (!order) return errorResponse({ res, message: "Order not found", status: 404 });
-    return successResponse({ res, data: order, message: "Order fetched successfully", status: 200 });
+
+    return successResponse({
+        res,
+        message: "Orders fetched successfully",
+        data: {
+            orders: rows,
+            pagination: {
+                totalOrders: count,
+                totalPages: Math.ceil(count / limitNumber),
+                currentPage: pageNumber,
+                limit: limitNumber,
+            }
+        },
+        status: 200,
+    });
 });
 
 const getPartnerOrders = asyncWrapper(async (req, res) => {
     const { supplierId, localPartnerId, currentStatus, status,
-        paymentMethod, orderFrequency } = req.query;
+        paymentMethod, orderFrequency, page = 1, limit = 10 } = req.query;
     let filter = {
         isLocalPartner: true,
         customerId: null
@@ -211,18 +217,44 @@ const getPartnerOrders = asyncWrapper(async (req, res) => {
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (orderFrequency) filter.orderFrequency = orderFrequency;
 
-    const orders = await Order.findAll({
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const offset = (pageNumber - 1) * limitNumber;
+
+    const {count, rows} = await Order.findAndCountAll({
         where: filter,
         include: [{
             model: OrderItem, as: "items", include: [{ model: Product, as: "product" }],
-        }]
+        }],
+        limit: limitNumber,
+        offset: offset,
+        distinct: true
     })
 
     return successResponse({
-        res, data: orders, message: "Partner Orders fetched successfuly", status: 200
+        res, 
+        message: "Orders fetched successfuly",
+        data: {
+            orders: rows, 
+            pagination: {
+                totalOrders: count,
+                totalPages: Math.ceil(count / limitNumber),
+                currentPage: pageNumber,
+                limit: limitNumber
+            }
+        },
+        status: 200
     })
 
 })
+
+const getOrder = asyncWrapper(async (req, res) => {
+    const order = await Order.findByPk(req.params.id, {
+        include: [{ model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }],
+    });
+    if (!order) return errorResponse({ res, message: "Order not found", status: 404 });
+    return successResponse({ res, data: order, message: "Order fetched successfully", status: 200 });
+});
 
 const getPartnerOrderDetail = asyncWrapper(async (req, res) => {
     const order = await Order.findByPk(req.params.id, {
@@ -236,29 +268,6 @@ const getPartnerOrderDetail = asyncWrapper(async (req, res) => {
 
     return successResponse({ res, data: order, message: "Partner order detail fetched", status: 200 })
 })
-
-const getPartnerOrdersByStatus = asyncWrapper(async (req, res) => {
-    const { status } = req.query;
-
-    const validStatuses = ["order_placed", "dispatched_to_supplier", "supplier_acknowledged", "shipped"];
-
-    if (!status) return errorResponse({ res, message: "Status is required", status: 400 });
-    if (!validStatuses.includes(status)) {
-        return errorResponse({ res, message: `Invalid status. Valid values: ${validStatuses.join(", ")}`, status: 400 });
-    }
-
-    const orders = await Order.findAll({
-        where: {
-            currentStatus: status,
-            isLocalPartner: true,
-            customerId: null
-        },
-        include: [{ model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] }],
-        order: [["createdAt", "DESC"]],
-    });
-
-    return successResponse({ res, data: orders, message: "Orders fetched successfully", status: 200 });
-});
 
 const getOrderDetail = asyncWrapper(async (req, res) => {
     const order = await Order.findByPk(req.params.id, {
@@ -384,5 +393,4 @@ module.exports = {
     deleteOrder,
     getPartnerOrders,
     getPartnerOrderDetail,
-    getPartnerOrdersByStatus,
 };

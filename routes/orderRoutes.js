@@ -2,8 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const {createOrder, getAllOrders, getOrder, getOrderDetail ,deleteOrder,
-        getPartnerOrders, getPartnerOrderDetail} =  
-require("../controllers/orderController");
+getPartnerOrders, getPartnerOrderDetail} =  require("../controllers/orderController");
 const protect = require("../middlewares/authMiddleware");
 const customerProtect = require("../middlewares/customerAuthMiddleware");
 
