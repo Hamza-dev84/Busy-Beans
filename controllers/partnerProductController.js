@@ -61,11 +61,14 @@ const addProductToPartner = asyncWrapper(async (req, res) => {
     const already = await PartnerProduct.findOne({ where: { partnerId, productId } });
     if (already) return errorResponse({ res, message: "Product already assigned", status: 409 });
 
+    const product = await Product.findByPk(productId);
+    if (!product) return errorResponse({ res, message: "Product not found", status: 404 });
+
     const partnerProduct = await PartnerProduct.create({
         partnerId,
         productId,
-        sellingPrice: sellingPrice || null,
-        wholesalePrice: wholesalePrice || null
+        sellingPrice: sellingPrice || product.price,
+        wholesalePrice: wholesalePrice || product.wholeSalePrice
     });
 
     return successResponse({ res, data: partnerProduct, message: "Product added to partner", status: 201 });

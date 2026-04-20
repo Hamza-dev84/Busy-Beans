@@ -15,7 +15,8 @@ const localPartnerRoutes = require("./routes/localPartner");
 const customerRoutes = require("./routes/customerRoutes");
 const invoiceRoutes = require("./routes/invoiceRoutes");
 const partnerProductRoutes = require("./routes/partnerProductRoutes");
-const supplierRoutes = require("./routes/supplierRoutes")
+const supplierRoutes = require("./routes/supplierRoutes");
+const reportRoutes = require("./routes/reportRoutes");
 
 const app = express();
 app.use(cors());
@@ -32,6 +33,7 @@ app.use("/customer", customerRoutes);
 app.use("/invoice", invoiceRoutes);
 app.use("/partner-products", partnerProductRoutes);
 app.use("/suppliers", supplierRoutes);
+app.use("/report", reportRoutes);
 
 app.use(errorHandler);
 
