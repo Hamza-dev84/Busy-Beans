@@ -7,7 +7,7 @@ const { getPagination, getPaginationData } = require("../services/paginationServ
 
 const getPartnerProfitsReport = asyncWrapper(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 10 } = req.query;
-    
+
     let dateFilter = {};
     if (startDate || endDate) {
         dateFilter.createdAt = {};
@@ -82,10 +82,75 @@ const getPartnerProfitsReport = asyncWrapper(async (req, res) => {
     });
 });
 
+const getPartnerCreditReport = asyncWrapper(async (req, res) => {
 
+    const { page = 1, limit = 10 } = req.query;
+
+    const { pageNumber, limitNumber, offset } = getPagination(page, limit);
+
+    const partners = await LocalPartner.findAll({
+        attributes: [
+            "id",
+            "name",
+            "creditLimit",
+
+            [fn("SUM", col("orders.total")), "creditUsed"]
+        ],
+
+        include: [
+            {
+                model: Order,
+                as: "orders",
+                attributes: [],
+                required: false,
+                where: {
+                    status: {
+                        [Op.ne]: "completed"
+                    }
+                }
+            }
+        ],
+
+        group: ["id"],
+
+        limit: limitNumber,
+        offset: offset,
+        subQuery: false
+    });
+
+
+    const report = partners.map(p => {
+        const creditLimit = parseFloat(p.creditLimit || 0);
+        const creditUsed = parseFloat(p.dataValues.creditUsed || 0);
+
+        const utilization = creditLimit > 0
+            ? ((creditUsed / creditLimit) * 100).toFixed(2) 
+            : 0;
+
+        return {
+            partnerId: p.id,
+            partnerName: p.name,
+            creditLimit: `$${creditLimit.toFixed(2)}`,
+            creditUsed: `$${creditUsed.toFixed(2)}`,
+            creditUtilization: `${utilization}%`
+        };
+    });
+
+    const totalCount = partners.length;
+
+    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
+
+    return successResponse({
+        res,
+        message: "Partner credit report fetched successfully",
+        data: pagination,
+        status: 200
+    });
+
+});
 
 
 module.exports = {
     getPartnerProfitsReport,
     getPartnerCreditReport
-} ;
+};
