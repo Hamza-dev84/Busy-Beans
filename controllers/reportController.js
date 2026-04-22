@@ -1,7 +1,7 @@
 
-const { Order, OrderProfit, LocalPartner } = require("../models/index");
+const { Order, OrderProfit, LocalPartner, Product, OrderItem, Customer } = require("../models/index");
 const asyncWrapper = require("../utilities/asyncWrapper");
-const { successResponse } = require("../utilities/responseHandler");
+const { successResponse, errorResponse } = require("../utilities/responseHandler");
 const { Op, fn, col, literal } = require("sequelize");
 const { getPagination, getPaginationData } = require("../services/paginationService");
 const { Col } = require("sequelize/lib/utils");
@@ -154,7 +154,7 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
 
     const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
-    
+
     if (type === "dropship") {
 
         const partners = await LocalPartner.findAll({
@@ -204,7 +204,6 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
         });
     }
 
-    
     if (type === "direct") {
 
         const partners = await LocalPartner.findAll({
@@ -212,20 +211,11 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
                 "id",
                 "name",
 
-                
                 [fn("SUM", col("orders.total")), "outstandingBalance"],
-
-               
                 [fn("COUNT", col("orders.id")), "ordersOnCredit"],
                 [fn("SUM", literal(`CASE WHEN orders.customerId IS NULL THEN 1 ELSE 0 END`)), "partnerOrders"],
-
-                
                 [fn("SUM", literal(`CASE WHEN orders.customerId IS NOT NULL THEN 1 ELSE 0 END`)), "customerOrders"],
-
-                
                 [fn("SUM", literal(`CASE WHEN orders.customerId IS NULL THEN orders.total ELSE 0 END`)), "creditOnPartnerOrders"],
-
-                
                 [fn("SUM", literal(`CASE WHEN orders.customerId IS NOT NULL THEN orders.total ELSE 0 END`)), "creditOnCustomerOrders"],
             ],
 
@@ -276,8 +266,152 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
     });
 });
 
+const getProductSalesReport = asyncWrapper(async (req, res) => {
+    const { page = 1, limit = 10 } = req.query;
+    const { pageNumber, limitNumber, offset } = getPagination(page, limit);
+
+    const { rows } = await Product.findAndCountAll({
+        attributes: [
+            "id",
+            "name",
+
+            [fn("COALESCE", fn("SUM", col("orderItems.total")), 0), "revenue"],
+
+            [
+                fn(
+                    "SUM",
+                    literal(`
+                        CASE 
+                            WHEN \`orderItems->order\`.\`customerId\` IS NOT NULL 
+                            THEN \`orderItems\`.\`total\` 
+                            ELSE 0 
+                        END
+                    `)
+                ),
+                "revenueFromCustomerOrders"
+            ],
+
+            [
+                fn(
+                    "SUM",
+                    literal(`
+                        CASE 
+                            WHEN \`orderItems->order\`.\`customerId\` IS NULL 
+                            THEN \`orderItems\`.\`total\` 
+                            ELSE 0 
+                        END
+                    `)
+                ),
+                "revenueFromPartnerSelfOrders"
+            ],
+            
+            [fn("COALESCE", fn("SUM", col("orderItems.quantity")), 0), "unitsSold"],
+
+            [
+                fn(
+                    "SUM",
+                    literal(`
+                        CASE 
+                            WHEN \`orderItems->order\`.\`customerId\` IS NOT NULL 
+                            THEN \`orderItems\`.\`quantity\` 
+                            ELSE 0 
+                        END
+                    `)
+                ),
+                "unitsSoldToCustomers"
+            ],
+
+            [
+                fn(
+                    "SUM",
+                    literal(`
+                        CASE 
+                            WHEN \`orderItems->order\`.\`customerId\` IS NULL 
+                            THEN \`orderItems\`.\`quantity\` 
+                            ELSE 0 
+                        END
+                    `)
+                ),
+                "unitsSoldToPartners"
+            ],
+
+            [
+                fn(
+                    "SUM",
+                    literal(`
+                        CASE 
+                            WHEN \`orderItems->order\`.\`customerId\` IS NOT NULL 
+                            AND \`orderItems->order\`.\`isLocalPartner\` = true
+                            THEN COALESCE(\`orderItems->order->profit\`.\`adminReceives\`, 0)
+                            ELSE 0
+                        END
+                    `)
+                ),
+                "adminReceivableFromLocalPartner"
+            ],
+        ],
+
+        include: [
+            {
+                model: OrderItem,
+                as: "orderItems",
+                attributes: [],
+                required: false,
+                include: [
+                    {
+                        model: Order,
+                        as: "order",
+                        attributes: [],
+                        required: false,
+                        include: [
+                            {
+                                model: OrderProfit,
+                                as: "profit",
+                                attributes: [],
+                                required: false
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+
+        group: ["Product.id"],
+        limit: limitNumber,
+        offset,
+        subQuery: false
+    });
+
+    const report = rows.map(p => {
+        const d = p.dataValues;
+
+        return {
+            productId: p.id,
+            productName: p.name,
+
+            revenue: `$${parseFloat(d.revenue || 0).toFixed(2)}`,
+            revenueFromCustomerOrders: `$${parseFloat(d.revenueFromCustomerOrders || 0).toFixed(2)}`,
+            revenueFromPartnerSelfOrders: `$${parseFloat(d.revenueFromPartnerSelfOrders || 0).toFixed(2)}`,
+
+            unitsSold: parseInt(d.unitsSold || 0),
+            unitsSoldToCustomers: parseInt(d.unitsSoldToCustomers || 0),
+            unitsSoldToPartners: parseInt(d.unitsSoldToPartners || 0),
+
+            adminReceivableFromLocalPartner: `$${parseFloat(d.adminReceivableFromLocalPartner || 0).toFixed(2)}`
+        };
+    });
+
+    return successResponse({
+        res,
+        message: "Product sales report fetched successfully",
+        data: getPaginationData(rows.length, report, pageNumber, limitNumber),
+        status: 200
+    });
+});
+
 module.exports = {
     getPartnerProfitsReport,
     getPartnerCreditReport,
-    getUnpaidPartnerBalanceReport
+    getUnpaidPartnerBalanceReport,
+    getProductSalesReport
 };

@@ -14,6 +14,7 @@ const Supplier = require("./Supplier");
 
 Order.hasMany(OrderItem, { foreignKey: "orderId", as: "items" });
 OrderItem.belongsTo(Order, { foreignKey: "orderId" });
+Product.hasMany(OrderItem, { foreignKey: "productId", as: "orderItems" });
 OrderItem.belongsTo(Product, { foreignKey: "productId", as: "product" });
 
 Order.hasMany(OrderTracking, { foreignKey: "orderId", as: "tracking" });
@@ -40,8 +41,8 @@ Order.hasOne(OrderProfit, { foreignKey: "orderId", as: "profit" });
 OrderProfit.belongsTo(Order, { foreignKey: "orderId" });
 OrderProfit.belongsTo(LocalPartner, { foreignKey: "partnerId", as: "partner" });
 
-Order.belongsTo(Supplier, {foreignKey: "supplierId", as: "supplier"});
-Supplier.hasMany(Order, {foreignKey: "supplierId", as: "orders"});
+Order.belongsTo(Supplier, { foreignKey: "supplierId", as: "supplier" });
+Supplier.hasMany(Order, { foreignKey: "supplierId", as: "orders" });
 
 module.exports = {
     Order, OrderItem, Product, Admin, OrderTracking,
