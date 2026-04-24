@@ -23,8 +23,8 @@ const {
     getPartnerCreditReport,
     getUnpaidPartnerBalanceReport,
     getProductSalesReport,
-    // getCustomerReport,
-    // getDirectPartnerReport,
+    getCustomerReport,
+    getDirectPartnerReport,
     // getSalesByCustomerReport,
     // getProductWiseSalesSummary,
 } = require("../controllers/reportController");
@@ -34,8 +34,8 @@ router.get("/partner-profits", protect, getPartnerProfitsReport);
 router.get("/partner-credit-limit", protect, getPartnerCreditReport);
 router.get("/unpaid-balance", protect, getUnpaidPartnerBalanceReport); //problem
 router.get("/product-sales", protect, getProductSalesReport); //problem
-// router.get("/customers", protect, getCustomerReport);
-// router.get("/direct-partners", protect, getDirectPartnerReport);//  problem
+router.get("/customers", protect, getCustomerReport);
+router.get("/directPartners", protect, getDirectPartnerReport);//  problem
 // router.get("/sales-by-customer", protect, getSalesByCustomerReport);
 // router.get("/product-wise-sales", protect, getProductWiseSalesSummary);
 
