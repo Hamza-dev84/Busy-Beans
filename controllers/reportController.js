@@ -405,7 +405,8 @@ const getCustomerReport = asyncWrapper(async (req, res) => {
         totalSpent: `$${parseFloat(c.dataValues.totalSpent || 0).toFixed(2)}`
     }))
 
-    const pagination = getPaginationData(rows.length, report, pageNumber, limitNumber);
+    const totalCount = rows.length;
+    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
     return successResponse({ res, data: pagination, message: "Customer report fetched", status: 201 })
 })
 
@@ -431,7 +432,7 @@ const getDirectPartnerReport = asyncWrapper(async (req, res) => {
         limit: limitNumber, offset, subQuery: false
     });
 
-    const totalCount = Array.isArray(count) ? count.length : count;
+    const totalCount = count.length;
 
     const report = rows.map(p => ({
         partnerName: p.name,
@@ -444,6 +445,67 @@ const getDirectPartnerReport = asyncWrapper(async (req, res) => {
     return successResponse({ res, message: "Direct partner report fetched", data: getPaginationData(totalCount, report, pageNumber, limitNumber), status: 200 });
 });
 
+const getSalesByCustomerSummaryReport = asyncWrapper(async (req, res) => {
+    const { page = 1, limit = 10 } = req.query;
+    const { pageNumber, limitNumber, offset } = getPagination(page, limit);
+
+    const { count, rows } = await Customer.findAndCountAll({
+        attributes: [
+            "id",
+            "companyName",
+
+            [fn("COUNT", col("orders.id")), "totalOrders"],
+
+            [
+                fn(
+                    "SUM",
+                    literal(`
+                        CASE 
+                            WHEN orders.status = 'completed' 
+                            THEN orders.total 
+                            ELSE 0 
+                        END
+                    `)
+                ),
+                "totalSales"
+            ]
+        ],
+
+        include: [
+            {
+                model: Order,
+                as: "orders",
+                attributes: [],
+                required: false
+            }
+        ],
+
+        group: ["Customer.id"],
+        limit: limitNumber,
+        offset: offset,
+        subQuery: false
+    });
+
+    const totalCount = count.length;
+
+    const report = rows.map(c => ({
+        companyName: c.companyName,
+
+        totalOrders: parseInt(c.dataValues.totalOrders || 0),
+
+        totalSales: `$${parseFloat(c.dataValues.totalSales || 0).toFixed(2)}`
+    }));
+
+    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber)
+
+    return successResponse({
+        res,
+        message: "Sales by customer summary fetched successfully",
+        data: pagination,
+        status: 200
+    });
+});
+
 module.exports = {
     getPartnerProfitsReport,
     getPartnerCreditReport,
@@ -451,4 +513,5 @@ module.exports = {
     getProductSalesReport,
     getCustomerReport,
     getDirectPartnerReport,
+    getSalesByCustomerSummaryReport
 };
