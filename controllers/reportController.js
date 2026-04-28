@@ -4,7 +4,6 @@ const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 const { Op, fn, col, literal } = require("sequelize");
 const { getPagination, getPaginationData } = require("../services/paginationService");
-const { Col } = require("sequelize/lib/utils");
 
 const getPartnerProfitsReport = asyncWrapper(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 10 } = req.query;
@@ -60,8 +59,6 @@ const getPartnerProfitsReport = asyncWrapper(async (req, res) => {
         subQuery: false
     });
 
-    const totalCount = rows.length;
-
     const report = rows.map(p => ({
         partnerId: p.id,
         partnerName: p.name,
@@ -73,23 +70,27 @@ const getPartnerProfitsReport = asyncWrapper(async (req, res) => {
         adminReceives: `$${parseFloat(p.dataValues.adminReceives || 0).toFixed(2)}`
     }));
 
-    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
-
     return successResponse({
         res,
         message: "Partner profit report fetched successfully",
-        data: pagination,
+        data: getPaginationData(count.length, report, pageNumber, limitNumber),
         status: 200
     });
 });
 
 const getPartnerCreditReport = asyncWrapper(async (req, res) => {
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
 
-    const { page = 1, limit = 10 } = req.query;
+    let dateFilter = {};
+    if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) dateFilter.createdAt[Op.lte] = new Date(endDate);
+    }
 
     const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
-    const partners = await LocalPartner.findAll({
+    const { count, rows } = await LocalPartner.findAndCountAll({
         attributes: [
             "id",
             "name",
@@ -107,7 +108,8 @@ const getPartnerCreditReport = asyncWrapper(async (req, res) => {
                 where: {
                     status: {
                         [Op.ne]: "completed"
-                    }
+                    },
+                    ...dateFilter
                 }
             }
         ],
@@ -120,7 +122,7 @@ const getPartnerCreditReport = asyncWrapper(async (req, res) => {
     });
 
 
-    const report = partners.map(p => {
+    const report = rows.map(p => {
         const creditLimit = parseFloat(p.creditLimit || 0);
         const creditUsed = parseFloat(p.dataValues.creditUsed || 0);
 
@@ -137,27 +139,31 @@ const getPartnerCreditReport = asyncWrapper(async (req, res) => {
         };
     });
 
-    const totalCount = partners.length;
-    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
-
     return successResponse({
         res,
         message: "Partner credit report fetched successfully",
-        data: pagination,
+        data: getPaginationData(count.length, report, pageNumber, limitNumber),
         status: 200
     });
 
 });
 
 const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
-    const { type, page = 1, limit = 10 } = req.query;
+    const { type, startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    let dateFilter = {};
+    if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) dateFilter.createdAt[Op.lte] = new Date(endDate);
+    }
 
     const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
 
     if (type === "dropship") {
 
-        const partners = await LocalPartner.findAll({
+        const { count, rows } = await LocalPartner.findAndCountAll({
             attributes: [
                 "id",
                 "name",
@@ -175,7 +181,8 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
                     required: false,
                     where: {
                         isLocalPartner: true,
-                        status: { [Op.ne]: "completed" }
+                        status: { [Op.ne]: "completed" },
+                        ...dateFilter
                     }
                 }
             ],
@@ -186,27 +193,24 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
             subQuery: false
         });
 
-        const report = partners.map(p => ({
+        const report = rows.map(p => ({
             partnerType: p.dataValues.partnerType,
             partnerName: p.name,
             outstandingBalance: `$${parseFloat(p.dataValues.outstandingBalance || 0).toFixed(2)}`,
             ordersOnCredit: p.dataValues.ordersOnCredit || 0
         }));
 
-        const totalCount = partners.length;
-        const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
-
         return successResponse({
             res,
             message: "DropShip unpaid balance report",
-            data: pagination,
+            data: getPaginationData(count.length, report, pageNumber, limitNumber),
             status: 200
         });
     }
 
     if (type === "direct") {
 
-        const partners = await LocalPartner.findAll({
+        const { count, rows } = await LocalPartner.findAndCountAll({
             attributes: [
                 "id",
                 "name",
@@ -226,7 +230,8 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
                     attributes: [],
                     required: false,
                     where: {
-                        status: { [Op.ne]: "completed" }
+                        status: { [Op.ne]: "completed" },
+                        ...dateFilter
                     }
                 }
             ],
@@ -237,7 +242,7 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
             subQuery: false
         });
 
-        const report = partners.map(p => ({
+        const report = rows.map(p => ({
             partnerName: p.name,
             outstandingBalance: `$${parseFloat(p.dataValues.outstandingBalance || 0).toFixed(2)}`,
             ordersOnCredit: p.dataValues.ordersOnCredit || 0,
@@ -247,30 +252,34 @@ const getUnpaidPartnerBalanceReport = asyncWrapper(async (req, res) => {
             creditOnCustomerOrders: `$${parseFloat(p.dataValues.creditOnCustomerOrders || 0).toFixed(2)}`
         }));
 
-        const totalCount = partners.length;
-        const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
-
         return successResponse({
             res,
             message: "Direct partner unpaid balance report",
-            data: pagination,
+            data: getPaginationData(count.length, report, pageNumber, limitNumber),
             status: 200
         });
     }
 
-    return successResponse({
+    return errorResponse({
         res,
         message: "Invalid type. Use 'dropship' or 'direct'",
-        data: [],
         status: 400
     });
 });
 
 const getProductSalesReport = asyncWrapper(async (req, res) => {
-    const { page = 1, limit = 10 } = req.query;
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    let dateFilter = {};
+    if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) dateFilter.createdAt[Op.lte] = new Date(endDate);
+    }
+
     const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
-    const { rows } = await Product.findAndCountAll({
+    const { count, rows } = await Product.findAndCountAll({
         attributes: [
             "id",
             "name",
@@ -288,20 +297,6 @@ const getProductSalesReport = asyncWrapper(async (req, res) => {
             [fn("SUM", literal(`CASE WHEN \`orderItems->order\`.\`customerId\` IS NULL THEN \`orderItems\`.\`quantity\` ELSE 0 END`)), "unitsSoldToPartners"],
 
             [fn("SUM", literal(`CASE WHEN \`orderItems->order\`.\`customerId\` IS NOT NULL AND \`orderItems->order\`.\`isLocalPartner\` = true THEN COALESCE(\`orderItems->order->profit\`.\`adminReceives\`, 0)ELSE 0 END`)), "adminReceivableFromLocalPartner"],
-
-
-            // [fn("SUM", literal("CASE WHEN `orderItems->order`.`customerId` IS NOT NULL THEN `orderItems` `total` ELSE 0 END")), "revenueFromCustomerOrders"],
-
-            // [fn("SUM", literal("CASE WHEN `orderItems->order`.`customerId` IS NULL THEN `orderItems`.`total` ELSE 0 END")), "revenueFromPartnerSelfOrders"],
-
-            // [fn("COALESCE", fn("SUM", col("orderItems.quantity")), 0), "unitsSold"],
-
-            // [fn("SUM", literal("CASE WHEN `orderItems->order`.`customerId` IS NOT NULL THEN `orderItems`.`quantity` ELSE 0 END")), "unitsSoldToCustomers"],
-
-            // [fn("SUM", literal("CASE WHEN `orderItems->order`.`customerId` IS NULL THEN `orderItems`.`quantity` ELSE 0 END")), "unitsSoldToPartners"],
-
-            // [fn("SUM", literal("CASE WHEN `orderItems->order`.`customerId` IS NOT NULL AND `orderItems->order`.`isLocalPartner` = true THEN COALESCE(`orderItems->order->profit`.`adminReceives`, 0) ELSE 0 END")), "adminReceivableFromLocalPartner"],
-
         ],
 
 
@@ -322,7 +317,10 @@ const getProductSalesReport = asyncWrapper(async (req, res) => {
                                 model: OrderProfit,
                                 as: "profit",
                                 attributes: [],
-                                required: false
+                                required: false,
+                                where: {
+                                    ...dateFilter
+                                }
                             }
                         ]
                     }
@@ -355,13 +353,10 @@ const getProductSalesReport = asyncWrapper(async (req, res) => {
         };
     });
 
-    const totalCount = rows.length
-    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
-
     return successResponse({
         res,
         message: "Product sales report fetched successfully",
-        data: getPaginationData(rows.length, report, pageNumber, limitNumber),
+        data: getPaginationData(count.length, report, pageNumber, limitNumber),
         status: 200
     });
 });
@@ -374,7 +369,7 @@ const getCustomerReport = asyncWrapper(async (req, res) => {
     if (startDate) dateFilter.createdAt = { [Op.gte]: new Date(startDate) };
     if (endDate) dateFilter.createdAt = { ...dateFilter.createdAt, [Op.lte]: new Date(endDate) }
 
-    const { rows } = await Customer.findAndCountAll({
+    const { count, rows } = await Customer.findAndCountAll({
         attributes: [
             "id", "userName", "companyName", "email",
             [fn("COUNT", col("orders.id")), "numberOfOrders"],
@@ -405,13 +400,24 @@ const getCustomerReport = asyncWrapper(async (req, res) => {
         totalSpent: `$${parseFloat(c.dataValues.totalSpent || 0).toFixed(2)}`
     }))
 
-    const totalCount = rows.length;
-    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber);
-    return successResponse({ res, data: pagination, message: "Customer report fetched", status: 201 })
+    return successResponse({
+        res,
+        data: getPaginationData(count.length, report, pageNumber, limitNumber),
+        message: "Customer report fetched",
+        status: 201
+    })
 })
 
 const getDirectPartnerReport = asyncWrapper(async (req, res) => {
-    const { page = 1, limit = 10 } = req.query;
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    let dateFilter = {};
+    if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) dateFilter.createdAt[Op.lte] = new Date(endDate);
+    }
+
     const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
     const { count, rows } = await LocalPartner.findAndCountAll({
@@ -426,13 +432,14 @@ const getDirectPartnerReport = asyncWrapper(async (req, res) => {
             [fn("SUM", literal(`CASE WHEN orders.customerId IS NULL THEN 1 ELSE 0 END`)), "selfOrders"]
         ],
         include: [{
-            model: Order, as: "orders", attributes: [], required: false
+            model: Order, as: "orders", attributes: [], required: false,
+            where: {
+                ...dateFilter
+            }
         }],
         group: ["id"],
         limit: limitNumber, offset, subQuery: false
     });
-
-    const totalCount = count.length;
 
     const report = rows.map(p => ({
         partnerName: p.name,
@@ -442,11 +449,21 @@ const getDirectPartnerReport = asyncWrapper(async (req, res) => {
         totalOrders: parseInt(p.dataValues.totalOrders || 0),
     }));
 
-    return successResponse({ res, message: "Direct partner report fetched", data: getPaginationData(totalCount, report, pageNumber, limitNumber), status: 200 });
+    return successResponse({
+        res, message: "Direct partner report fetched", data: getPaginationData(count.length, report, pageNumber, limitNumber), status: 200
+    });
 });
 
 const getSalesByCustomerSummaryReport = asyncWrapper(async (req, res) => {
-    const { page = 1, limit = 10 } = req.query;
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    let dateFilter = {};
+    if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) dateFilter.createdAt[Op.lte] = new Date(endDate);
+    }
+
     const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
     const { count, rows } = await Customer.findAndCountAll({
@@ -456,27 +473,17 @@ const getSalesByCustomerSummaryReport = asyncWrapper(async (req, res) => {
 
             [fn("COUNT", col("orders.id")), "totalOrders"],
 
-            [
-                fn(
-                    "SUM",
-                    literal(`
-                        CASE 
-                            WHEN orders.status = 'completed' 
-                            THEN orders.total 
-                            ELSE 0 
-                        END
-                    `)
-                ),
-                "totalSales"
-            ]
-        ],
+            [fn("SUM", literal(`CASE WHEN orders.status = 'completed' THEN orders.total ELSE 0 END`)), "totalSales"]],
 
         include: [
             {
                 model: Order,
                 as: "orders",
                 attributes: [],
-                required: false
+                required: false,
+                where: {
+                    ...dateFilter
+                }
             }
         ],
 
@@ -486,8 +493,6 @@ const getSalesByCustomerSummaryReport = asyncWrapper(async (req, res) => {
         subQuery: false
     });
 
-    const totalCount = count.length;
-
     const report = rows.map(c => ({
         companyName: c.companyName,
 
@@ -496,15 +501,99 @@ const getSalesByCustomerSummaryReport = asyncWrapper(async (req, res) => {
         totalSales: `$${parseFloat(c.dataValues.totalSales || 0).toFixed(2)}`
     }));
 
-    const pagination = getPaginationData(totalCount, report, pageNumber, limitNumber)
-
     return successResponse({
         res,
         message: "Sales by customer summary fetched successfully",
-        data: pagination,
+        data: getPaginationData(count.length, report, pageNumber, limitNumber),
         status: 200
     });
 });
+
+const getProductWiseSalesSummary = asyncWrapper(async (req, res) => {
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
+    let dateFilter = {};
+    if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+        if (endDate) dateFilter.createdAt[Op.lte] = new Date(endDate);
+    }
+
+    const { pageNumber, limitNumber, offset } = getPagination(page, limit);
+
+    const { count, rows } = await Product.findAndCountAll({
+        attributes: [
+            "id",
+            "name",
+
+            [fn("COALESCE", fn("SUM", col("orderItems.quantity")), 0), "quantity"],
+            [fn("COALESCE", fn("SUM", col("orderItems.total")), 0), "amount"],
+
+            [fn("AVG", literal("CASE WHEN orderItems.quantity > 0 THEN orderItems.total / orderItems.quantity END")), "avgPrice"],
+
+            [fn("COALESCE", fn("SUM", literal("orderItems.quantity * Product.price")), 0), "cogs"],
+            [fn("COALESCE", fn("SUM", literal("orderItems.total - (orderItems.quantity * Product.price)")), 0), "grossMargin"]
+        ],
+
+        include: [
+            {
+                model: OrderItem,
+                as: "orderItems",
+                attributes: [],
+                required: false,
+                include: [
+                    {
+                        model: Order,
+                        as: "order",
+                        attributes: [],
+                        required: false,
+                        where: {
+                            status: "completed",
+                            ...dateFilter
+                        }
+                    }
+                ]
+            }
+        ],
+
+        group: ["Product.id"],
+        limit: limitNumber,
+        offset,
+        subQuery: false
+    })
+
+    const totalSales = rows.reduce((sum, p) => sum + parseFloat(p.dataValues.amount || 0), 0);
+
+    const report = rows.map(p => {
+        const d = p.dataValues;
+        const quantity = parseFloat(d.quantity || 0);
+        const amount = parseFloat(d.amount || 0);
+        const cogs = parseFloat(d.cogs || 0);
+        const grossMargin = parseFloat(d.grossMargin || 0);
+
+        const percentOfSales = totalSales > 0 ? ((amount / totalSales) * 100).toFixed(2) : 0;
+        const grossMarginPercent = amount > 0 ? ((grossMargin / amount) * 100).toFixed(2) : 0;
+
+        return {
+            productName: p.name,
+            quantity: parseFloat(quantity),
+            amount: `$${amount.toFixed(2)}`,
+            percentOfSales: `${percentOfSales} %`,
+            avgPrice: `$${parseFloat(d.avgPrice || 0).toFixed(2)}`,
+            COGS: `$${cogs.toFixed(2)}`,
+            grossMargin: `$${grossMargin.toFixed(2)}`,
+            grossMarginPercent: `${grossMarginPercent}%`
+
+        }
+
+    })
+
+    return successResponse({
+        res,
+        data: getPaginationData(count.length, report, pageNumber, limitNumber),
+        status: 200
+    })
+})
+
 
 module.exports = {
     getPartnerProfitsReport,
@@ -513,5 +602,6 @@ module.exports = {
     getProductSalesReport,
     getCustomerReport,
     getDirectPartnerReport,
-    getSalesByCustomerSummaryReport
+    getSalesByCustomerSummaryReport,
+    getProductWiseSalesSummary
 };
