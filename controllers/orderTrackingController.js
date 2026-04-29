@@ -4,6 +4,7 @@ const { Order, OrderTracking } = require("../models/index");
 const Supplier = require("../models/Supplier");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
+const {sendDispatchEmail} = require("../services/emailService");
 
 const STATUS_STEPS = [
   "order_placed",
@@ -60,6 +61,12 @@ const updateOrderStatus = asyncWrapper(async (req, res) => {
       const supplier = await Supplier.findByPk(supplierId);
       if(!supplier) return errorResponse({res, message: "Supplier not found", status: 400});
       await order.update({supplierId: supplier.id});
+
+      try {
+        await sendDispatchEmail(supplier.email, supplier.name, order)
+      } catch (emailErr) {
+        console.log("Supplier email failed", emailErr.message);
+      }
   }
 
   const { tracking } = await sequelize.transaction(async (t) => {

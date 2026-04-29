@@ -2,35 +2,8 @@ const { sequelize } = require("../config/db");
 const { Invoice, InvoiceItem } = require("../models/index");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
+const {sendInvoiceEmail} = require("../services/emailService");
 const nodemailer = require("nodemailer");
-
-const sendInvoiceEmail = async (toEmail, invoice) => {
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: toEmail,
-    subject: `Invoice ${invoice.invoiceNumber} - Busy Bean Coffee`,
-    text: `
-Invoice Number: ${invoice.invoiceNumber}
-Company: ${invoice.companyName}
-Invoice Date: ${invoice.invoiceDate}
-Amount: $${invoice.totalUSD}
-Shipping Charges: $${invoice.shippingCharges}
-Terms: ${invoice.days} days
-Comments: ${invoice.comments || "N/A"}
-
-Thank you for your business!
-Busy Bean Coffee
-    `,
-  });
-};
 
 const createInvoice = asyncWrapper(async (req, res) => {
   const {
@@ -81,7 +54,7 @@ const createInvoice = asyncWrapper(async (req, res) => {
   })
 
   if (emailToCustomer) {
-    await sendInvoiceEmail(email, invoice);
+    await sendInvoiceEmail(email, invoice, invoiceItems);
   }
 
   const fullInvoice = await Invoice.findByPk(invoice.id, {

@@ -7,7 +7,8 @@ const Supplier = require("../models/Supplier");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 const { Op } = require("sequelize");
-const {getPagination, getPaginationData} = require("../services/paginationService");
+const { getPagination, getPaginationData } = require("../services/paginationService");
+const { sendOrderConfirmationEmail } = require("../services/emailService");
 const {
     fetchProducts,
     calculateTotals,
@@ -78,7 +79,9 @@ const createOrder = asyncWrapper(async (req, res) => {
     }
 
     const selectedCustomer = await fetchSelectedCustomer(isAdminOrder, customerId, partner?.id, customer);
-    if (isAdminOrder && !selectedCustomer) return errorResponse({ res, message: "Customer does not belong to this partner", status: 403 });
+    if (isAdminOrder && !selectedCustomer) {
+        return errorResponse({ res, message: "Customer does not belong to this partner", status: 403 });
+    }
 
     const { order } = await sequelize.transaction(async (t) => {
         const order = await createOrderRecord(selectedCustomer, partner, orderObj, totals, isAdminOrder, isPartnerOrder, t);
@@ -88,8 +91,95 @@ const createOrder = asyncWrapper(async (req, res) => {
         return { order };
     });
 
+    const orderItems = totals.itemsData.map(i => {
+        const product = products.find(p => (p.productId || p.id) === i.productId);
+        return {
+            name: product?.name || "Product",
+            quantity: i.quantity,
+            price: i.sellingPrice
+        };
+    });
+
+    setImmediate(() => {
+        (async () => {
+            try {
+                
+                if (!isAdminOrder && !isPartnerOrder) {
+                    if (selectedCustomer?.email) {
+                        await sendOrderConfirmationEmail({
+                            orderId: order.id,
+                            customerName: selectedCustomer.userName || "Customer",
+                            customerEmail: selectedCustomer.email,
+                            companyName: selectedCustomer.companyName || null,
+                            deliveryAddress: `${selectedCustomer.addressLine1 || ""}, ${selectedCustomer.addressLine2 || ""}, ${selectedCustomer.city || ""}, ${selectedCustomer.state || ""}, ${selectedCustomer.country || ""}`,
+                            items: orderItems,
+                            total: totals.total,
+                            shippingCharges: totals.shippingCharges,
+                            createdAt: new Date(),
+                        });
+                    }
+                }
+
+                
+                if (isPartnerOrder && !isAdminOrder) {
+                    if (partner?.email) {
+                        await sendOrderConfirmationEmail({
+                            orderId: order.id,
+                            customerName: partner.name || "Partner",
+                            customerEmail: partner.email,
+                            companyName: partner.name || null,
+                            deliveryAddress: `${partner.shippingAddressLine1 || ""}, ${partner.shippingAddressLine2 || ""}, ${partner.shippingCity || ""}, ${partner.shippingState || ""}`,
+                            items: orderItems,
+                            total: totals.total,
+                            shippingCharges: totals.shippingCharges,
+                            createdAt: new Date(),
+                        });
+                    }
+                }
+
+                if (isAdminOrder) {
+                    if (selectedCustomer?.email) {
+                        await sendOrderConfirmationEmail({
+                            orderId: order.id,
+                            customerName: selectedCustomer.userName || "Customer",
+                            customerEmail: selectedCustomer.email,
+                            companyName: selectedCustomer.companyName || null,
+                            deliveryAddress: `${selectedCustomer.addressLine1 || ""}, ${selectedCustomer.addressLine2 || ""}, ${selectedCustomer.city || ""}, ${selectedCustomer.state || ""}, ${selectedCustomer.country || ""}`,
+                            items: orderItems,
+                            total: totals.total,
+                            shippingCharges: totals.shippingCharges,
+                            createdAt: new Date(),
+                        });
+                    }
+
+                    if (partner?.email) {
+                        await sendOrderConfirmationEmail({
+                            orderId: order.id,
+                            customerName: partner.name || "Partner",
+                            customerEmail: partner.email,
+                            companyName: customer.companyName || null,
+                            deliveryAddress: `${selectedCustomer?.addressLine1 || ""}, ${selectedCustomer?.addressLine2 || ""}, ${selectedCustomer?.city || ""}, ${selectedCustomer?.state || ""}, ${selectedCustomer?.country || ""}`,
+                            items: orderItems,
+                            total: totals.total,
+                            shippingCharges: totals.shippingCharges,
+                            createdAt: new Date(),
+                            isPartnerEmail: true,
+                            customerCompany: selectedCustomer?.companyName || null,
+                            adminReceives: totals.adminReceives,
+                            partnerProfit: totals.partnerProfit,
+                        });
+                    }
+                }
+
+            } catch (err) {
+                console.error("Email failed:", err.message);
+            }
+        })();
+    });
+
     return successResponse({
-        res, message: "Order created successfully",
+        res,
+        message: "Order created successfully",
         data: {
             order: {
                 ...order.toJSON(),
@@ -136,7 +226,7 @@ const getAllOrders = asyncWrapper(async (req, res) => {
 
     let filter = {};
 
-    
+
     if (currentStatus) {
         const validCurrentStatuses = [
             "order_placed",
@@ -162,7 +252,7 @@ const getAllOrders = asyncWrapper(async (req, res) => {
         filter.status = normalized;
     }
 
-    
+
     if (customerId) filter.customerId = customerId;
     if (supplierId) filter.supplierId = supplierId;
     if (localPartnerId) filter.localPartnerId = localPartnerId;
@@ -174,7 +264,7 @@ const getAllOrders = asyncWrapper(async (req, res) => {
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (orderFrequency) filter.orderFrequency = orderFrequency;
 
-    
+
     const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
     const { count, rows } = await Order.findAndCountAll({
@@ -192,7 +282,7 @@ const getAllOrders = asyncWrapper(async (req, res) => {
         distinct: true
     });
 
-    
+
     const pagination = getPaginationData(count, rows, pageNumber, limitNumber);
 
     return successResponse({
@@ -240,9 +330,9 @@ const getPartnerOrders = asyncWrapper(async (req, res) => {
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (orderFrequency) filter.orderFrequency = orderFrequency;
 
-    const {pageNumber, limitNumber, offset} = getPagination(page, limit);
+    const { pageNumber, limitNumber, offset } = getPagination(page, limit);
 
-    const {count, rows} = await Order.findAndCountAll({
+    const { count, rows } = await Order.findAndCountAll({
         where: filter,
         include: [{
             model: OrderItem, as: "items", include: [{ model: Product, as: "product" }],
@@ -255,10 +345,10 @@ const getPartnerOrders = asyncWrapper(async (req, res) => {
     const pagination = getPaginationData(count, rows, pageNumber, limitNumber);
 
     return successResponse({
-        res, 
+        res,
         message: "Orders fetched successfuly",
         data: {
-            orders: rows, 
+            orders: rows,
             pagination
         },
         status: 200
