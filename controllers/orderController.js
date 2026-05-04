@@ -9,6 +9,8 @@ const { successResponse, errorResponse } = require("../utilities/responseHandler
 const { Op } = require("sequelize");
 const { getPagination, getPaginationData } = require("../services/paginationService");
 const { sendOrderConfirmationEmail } = require("../services/emailService");
+const { generateInvoicePDF } = require("../services/pdfService");
+const { sendOrderInvoiceEmail } = require("../services/emailService");
 const {
     fetchProducts,
     calculateTotals,
@@ -103,7 +105,7 @@ const createOrder = asyncWrapper(async (req, res) => {
     setImmediate(() => {
         (async () => {
             try {
-                
+
                 if (!isAdminOrder && !isPartnerOrder) {
                     if (selectedCustomer?.email) {
                         await sendOrderConfirmationEmail({
@@ -120,7 +122,7 @@ const createOrder = asyncWrapper(async (req, res) => {
                     }
                 }
 
-                
+
                 if (isPartnerOrder && !isAdminOrder) {
                     if (partner?.email) {
                         await sendOrderConfirmationEmail({
@@ -493,6 +495,66 @@ const deleteOrder = asyncWrapper(async (req, res) => {
     return successResponse({ res, data: null, message: "Order deleted successfully", status: 200 });
 });
 
+const sendInvoiceByOrder = asyncWrapper(async (req, res) => {
+    const order = await Order.findByPk(req.params.id, {
+        include: [
+            { model: OrderItem, as: "items", include: [{ model: Product, as: "product" }] },
+            { model: Customer, as: "customer" },
+            { model: LocalPartner, as: "partner" },
+        ]
+    });
+
+    if (!order) return errorResponse({ res, message: "Order not found", status: 404 });
+
+    const customer = order.customer;
+    const partner = order.partner;
+
+    const invoiceNumber = `INV00${order.id}`;
+    const invoiceDate = new Date(order.createdAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const paymentDueDate = new Date(new Date(order.createdAt).setDate(new Date(order.createdAt).getDate() + 30))
+        .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+    const toEmail = order.isLocalPartner ? partner?.email : customer?.email;
+    const companyName = order.isLocalPartner ? partner?.name : customer?.companyName;
+    const address = order.isLocalPartner
+        ? `${partner?.shippingAddressLine1 || ""}, ${partner?.shippingCity || ""}, ${partner?.shippingState || ""} ${partner?.shippingZipCode || ""}, ${partner?.shippingCountry || ""}`
+        : `${customer?.addressLine1 || ""}, ${customer?.city || ""}, ${customer?.state || ""} ${customer?.zipCode || ""}, ${customer?.country || ""}`;
+    const phone = order.isLocalPartner ? partner?.phone : `${customer?.phoneCode || ""} ${customer?.phone || ""}`;
+
+    const items = order.items.map(item => ({
+        code: item.product?.sku || item.product?.productCode || "",
+        name: item.product?.name || "",
+        quantity: item.quantity,
+        unitPrice: parseFloat(item.unitPrice),
+        total: parseFloat(item.total),
+    }));
+
+    const subtotal = parseFloat(order.subtotal);
+    const shippingCharges = parseFloat(order.shippingCharges);
+    const total = parseFloat(order.total);
+
+    const invoiceData = {
+        invoiceNumber,
+        orderId: order.id,
+        invoiceDate,
+        paymentDueDate,
+        companyName,
+        address,
+        phone,
+        email: toEmail,
+        items,
+        subtotal,
+        shippingCharges,
+        total,
+    };
+
+    const pdfBuffer =  await generateInvoicePDF(invoiceData);
+
+    sendOrderInvoiceEmail(toEmail, invoiceData, pdfBuffer);
+
+    return successResponse({ res, message: "Invoice sent successfully", status: 200 });
+});
+
 module.exports = {
     createOrder,
     getAllOrders,
@@ -501,4 +563,5 @@ module.exports = {
     deleteOrder,
     getPartnerOrders,
     getPartnerOrderDetail,
+    sendInvoiceByOrder
 };

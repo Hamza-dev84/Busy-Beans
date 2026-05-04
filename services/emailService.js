@@ -3,7 +3,8 @@ const nodemailer = require("nodemailer");
 const { orderConfirmationTemplate } = require("../templates/orderConfirmation");
 const { dispatchTemplate, dispatchedToCustomerTemplate } = require("../templates/dispatchTemplate");
 const { shippedTemplate } = require("../templates/shippedTemplates");
-const {invoiceTemplate} = require("../templates/invoiceTemplate");
+const { orderInvoiceEmailTemplate } = require("../templates/orderInvoiceTemplate");
+const asyncWrapper = require("../utilities/asyncWrapper");
 
 const transporter = nodemailer.createTransport({
     service: "gmail",
@@ -49,17 +50,25 @@ const sendShippedEmail = async (toEmail, customerName, order) => {
     });
 };
 
-const sendInvoiceEmail = async (toEmail, invoice, items) => {
+const sendOrderInvoiceEmail = async (toEmail, invoice, pdfBuffer) => {
     await transporter.sendMail({
-        from: `"Busy Beans Coffee" <${process.env.EMAIL_USER}>`,
+        from: `"Busy Bean coffee", <${process.env.EMAIL_USER}>`,
         to: toEmail,
-        subject: `Invoice #${invoice.invoiceNumber} — Busy Beans Coffee`,
-        html: invoiceTemplate(invoice, items),
-    });
-};
+        subject: `Your Invoice ${invoice.invoiceNumber} - Busy Beans Coffee`,
+        html: orderInvoiceEmailTemplate(invoice),
+
+        attachments: [
+            {
+                filename: `${invoice.invoiceNumber}.pdf`,
+                content: pdfBuffer,
+                contentType: "application/pdf"
+            }
+        ]
+    })
+}
 
 module.exports = {
-    sendOrderConfirmationEmail, sendDispatchEmail, 
+    sendOrderConfirmationEmail, sendDispatchEmail,
     sendShippedEmail, sendDispatchedToCustomerEmail,
-    sendInvoiceEmail
+    sendOrderInvoiceEmail
 }
