@@ -5,6 +5,7 @@ const { dispatchTemplate, dispatchedToCustomerTemplate } = require("../templates
 const { shippedTemplate } = require("../templates/shippedTemplates");
 const { orderInvoiceEmailTemplate } = require("../templates/orderInvoiceTemplate");
 const asyncWrapper = require("../utilities/asyncWrapper");
+const { generateInvoicePDF } = require("./pdfService");
 
 const transporter = nodemailer.createTransport({
     service: "gmail",
@@ -50,7 +51,8 @@ const sendShippedEmail = async (toEmail, customerName, order) => {
     });
 };
 
-const sendOrderInvoiceEmail = async (toEmail, invoice, pdfBuffer) => {
+const sendOrderInvoiceEmail = async (toEmail, invoice) => {
+    const pdfBuffer = await generateInvoicePDF(invoice);
     await transporter.sendMail({
         from: `"Busy Bean coffee", <${process.env.EMAIL_USER}>`,
         to: toEmail,

@@ -9,7 +9,6 @@ const { successResponse, errorResponse } = require("../utilities/responseHandler
 const { Op } = require("sequelize");
 const { getPagination, getPaginationData } = require("../services/paginationService");
 const { sendOrderConfirmationEmail } = require("../services/emailService");
-const { generateInvoicePDF } = require("../services/pdfService");
 const { sendOrderInvoiceEmail } = require("../services/emailService");
 const {
     fetchProducts,
@@ -548,9 +547,7 @@ const sendInvoiceByOrder = asyncWrapper(async (req, res) => {
         total,
     };
 
-    const pdfBuffer =  await generateInvoicePDF(invoiceData);
-
-    sendOrderInvoiceEmail(toEmail, invoiceData, pdfBuffer);
+    sendOrderInvoiceEmail(toEmail, invoiceData);
 
     return successResponse({ res, message: "Invoice sent successfully", status: 200 });
 });
