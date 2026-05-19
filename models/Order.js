@@ -88,7 +88,12 @@ const Order = sequelize.define("order", {
     status: {
         type: DataTypes.ENUM("pending", "completed", "cancelled"),
         defaultValue: "pending"
-    }
+    },
+
+    paymentStatus: {
+        type: DataTypes.ENUM("unpaid", "paid", "failed"),
+        defaultValue: "unpaid"
+    },
 
 }, { timestamps: true });
 

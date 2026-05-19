@@ -5,13 +5,19 @@ const { successResponse, errorResponse } = require("../utilities/responseHandler
 
 const getAllProducts = asyncWrapper(async (req, res) => {
     const products = await Product.findAll({ order: [["createdAt", "DESC"]] });
+
+    const formattedProducts = products.map(product => ({
+        ...product.toJSON(),
+        price: `$${product.price}`,
+        wholeSalePrice: `$${product.wholeSalePrice}`
+    }));
+
     return successResponse({
         res,
-        data: products,
+        data: formattedProducts,
         message: "Products fetched successfuly",
         status: 201
-    }
-    );
+    });
 });
 
 const addProduct = asyncWrapper(async (req, res) => {

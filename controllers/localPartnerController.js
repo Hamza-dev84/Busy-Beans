@@ -1,6 +1,8 @@
 
 const LocalPartner = require("../models/LocalPartner");
 const asyncWrapper = require("../utilities/asyncWrapper");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 
 const getAllPartners = asyncWrapper(async (req, res) => {
@@ -40,8 +42,48 @@ const addPartner = asyncWrapper(async (req, res) => {
     billingZipCode: isSame ? shippingZipCode : billingZipCode,
   });
 
-  return successResponse({ res, data: partner, message: "Partner created", status: 201 }); // ← return missing tha
+  return successResponse({ res, data: partner, message: "Partner created", status: 201 });
 });
+
+const loginPartner = asyncWrapper(async (req, res) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return errorResponse({ res, message: "Email and password are required", status: 400 });
+    }
+
+    const partner = await LocalPartner.findOne({ where: { email } });
+    if (!partner) return errorResponse({ res, message: "Invalid email or password", status: 401 });
+
+    const isMatch = await bcrypt.compare(password, partner.password);
+    if (!isMatch) return errorResponse({ res, message: "Invalid email or password", status: 401 });
+
+    if (partner.status === "inactive") {
+        return errorResponse({ res, message: "Your account is inactive", status: 403 });
+    }
+
+    const token = jwt.sign({ id: partner.id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+    const stripeLinked = partner.stripeAccountId && partner.stripeAccountStatus === "active";
+
+    return successResponse({
+        res,
+        message: "Login successful",
+        data: {
+            token,
+            partner: {
+                id: partner.id,
+                name: partner.name,
+                email: partner.email,
+                stripeLinked,
+                stripeAccountStatus: partner.stripeAccountStatus || null,
+                onboardingRequired: !stripeLinked,
+            }
+        },
+        status: 200
+    });
+});
+
 
 const editPartner = asyncWrapper(async (req, res) => {
   const partner = await LocalPartner.findByPk(req.params.id);
@@ -69,4 +111,4 @@ const deletePartner = asyncWrapper(async (req, res) => {
   return successResponse({ res, data: null, message: "Partner deleted successfully", status: 200 });
 });
 
-module.exports = { getAllPartners, addPartner, editPartner, toggleStatus, deletePartner };
+module.exports = { getAllPartners, addPartner, loginPartner, editPartner, toggleStatus, deletePartner };

@@ -1,4 +1,7 @@
 
+// Local partner assign to customer on the base of: 
+    // Customer.state === LocalPartner.shippingState
+    // AND LocalPartner.status === "active"
 
 const Customer = require("../models/Customer")
 const generateToken = require("../utilities/generateToken");
@@ -67,15 +70,38 @@ const login = asyncWrapper(async (req, res) => {
     const { email, password } = req.body;
 
     const customer = await Customer.findOne({ where: { email } });
-    if (!customer) return errorResponse({ res, message: "Invalid email or password", status: 401 });
 
-    const isMatch = customer.comparePassword(password);
-    if (!isMatch) return errorResponse({ res, message: "Invalid email or password", status: 401 });
+    if (!customer) {
+        return errorResponse({
+            res,
+            message: "Invalid email or password",
+            status: 401
+        });
+    }
+
+    const isMatch = await customer.comparePassword(password);
+
+    if (!isMatch) {
+        return errorResponse({
+            res,
+            message: "Invalid email or password",
+            status: 401
+        });
+    }
 
     const token = generateToken(customer);
 
-    return successResponse({ res, data: { customer, token }, message: "Login successfuly", status: 201 })
+    return successResponse({
+        res,
+        data: { customer, token },
+        message: "Login successfully",
+        status: 200
+    });
+});
 
+const showAllCustomers = asyncWrapper(async (req, res) => {
+    const customers = await Customer.findAll({});
+    successResponse({res, data: customers, message: "fetch all customers", status: 201})
 })
 
-module.exports = { register, login }
+module.exports = { register, login, showAllCustomers }

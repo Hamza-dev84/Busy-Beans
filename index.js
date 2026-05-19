@@ -1,5 +1,5 @@
 
-process.env.TZ = "Asia/Karachi"; 
+process.env.TZ = "Asia/Karachi";
 const dotenv = require("dotenv");
 dotenv.config();
 const express = require("express");
@@ -16,8 +16,10 @@ const customerRoutes = require("./routes/customerRoutes");
 const partnerProductRoutes = require("./routes/partnerProductRoutes");
 const supplierRoutes = require("./routes/supplierRoutes");
 const reportRoutes = require("./routes/reportRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
 
 const app = express();
+app.use("/stripe/webhook", express.raw({ type: "application/json" }));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -32,6 +34,7 @@ app.use("/customer", customerRoutes);
 app.use("/partner-products", partnerProductRoutes);
 app.use("/suppliers", supplierRoutes);
 app.use("/report", reportRoutes);
+app.use("/stripe", paymentRoutes);
 
 app.use(errorHandler);
 
