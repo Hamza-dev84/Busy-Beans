@@ -1,2 +1,0 @@
-
-account ha active nhi 

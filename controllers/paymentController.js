@@ -6,12 +6,70 @@ const { Order, OrderItem, Product } = require("../models/index");
 const asyncWrapper = require("../utilities/asyncWrapper");
 const { successResponse, errorResponse } = require("../utilities/responseHandler");
 
-const createConnectAccount = asyncWrapper(async (req, res) => {
+const connectOrCheckStripeAccount = asyncWrapper(async (req, res) => {
     const partner = await LocalPartner.findByPk(req.partner.id);
 
-    if (partner.stripeAccountId) {
-        return errorResponse({ res, message: "Stripe account already exists", status: 400 });
+    if (partner.stripeAccountId && partner.stripeAccountStatus === "active") {
+        const account = await stripe.accounts.retrieve(partner.stripeAccountId);
+        const isActive = account.charges_enabled && account.payouts_enabled;
+        
+        const bankAccount = account.external_accounts?.data[0];
+        console.log("Bank account details", bankAccount);
+
+        if (isActive) {
+            return successResponse({
+                res,
+                message: "Stripe account is active",
+                data: {
+                    stripeLinked: true,
+                    stripeAccountStatus: "active",
+                    onboardingRequired: false,
+                },
+                status: 200
+            });
+        }
     }
+
+    if (partner.stripeAccountId && partner.stripeAccountStatus !== "active") {
+        const account = await stripe.accounts.retrieve(partner.stripeAccountId);
+        console.log(account);
+        const isActive = account.charges_enabled && account.payouts_enabled;
+
+        if (isActive) {
+            await partner.update({ stripeAccountStatus: "active" });
+            return successResponse({
+                res,
+                message: "Stripe account is now active",
+                data: {
+                    stripeLinked: true,
+                    stripeAccountStatus: "active",
+                    onboardingRequired: false,
+                },
+                status: 200
+            });
+        }
+
+
+        const accountLink = await stripe.accountLinks.create({
+            account: partner.stripeAccountId,
+            refresh_url: `${process.env.FRONTEND_URL}/partner/stripe/refresh`,
+            return_url: `${process.env.FRONTEND_URL}/partner/stripe/success`,
+            type: "account_onboarding",
+        });
+
+        return successResponse({
+            res,
+            message: "Stripe onboarding incomplete",
+            data: {
+                stripeLinked: false,
+                stripeAccountStatus: "pending",
+                onboardingRequired: true,
+                onboardingUrl: accountLink.url,
+            },
+            status: 200
+        });
+    }
+
 
     const account = await stripe.accounts.create({
         type: "express",
@@ -21,14 +79,10 @@ const createConnectAccount = asyncWrapper(async (req, res) => {
         },
     });
 
-    console.log("Stripe account created:", account.id);
-
     await partner.update({
         stripeAccountId: account.id,
         stripeAccountStatus: "pending"
     });
-
-    console.log("Partner after update:", partner.stripeAccountId);
 
     const accountLink = await stripe.accountLinks.create({
         account: account.id,
@@ -39,62 +93,14 @@ const createConnectAccount = asyncWrapper(async (req, res) => {
 
     return successResponse({
         res,
-        message: "Stripe onboarding link created",
-        data: { onboardingUrl: accountLink.url },
-        status: 201
-    });
-});
-
-const refreshOnboardingLink = asyncWrapper(async (req, res) => {
-    const partner = await LocalPartner.findByPk(req.partner.id);
-
-    if (!partner.stripeAccountId) {
-        return errorResponse({ res, message: "No Stripe account found", status: 404 });
-    }
-
-    const accountLink = await stripe.accountLinks.create({
-        account: partner.stripeAccountId,
-        refresh_url: `${process.env.FRONTEND_URL}/partner/stripe/refresh`,
-        return_url: `${process.env.FRONTEND_URL}/partner/stripe/success`,
-        type: "account_onboarding",
-    });
-
-    return successResponse({
-        res,
-        message: "Onboarding link refreshed",
-        data: { onboardingUrl: accountLink.url },
-        status: 200
-    });
-});
-
-const checkConnectStatus = asyncWrapper(async (req, res) => {
-    const partner = await LocalPartner.findByPk(req.partner.id);
-
-    if (!partner.stripeAccountId) {
-        return errorResponse({ res, message: "No Stripe account found", status: 404 });
-    }
-
-    const account = await stripe.accounts.retrieve(partner.stripeAccountId);
-
-    console.log("charges_enabled:", account.charges_enabled);
-    console.log("payouts_enabled:", account.payouts_enabled);
-    console.log("details_submitted:", account.details_submitted);
-
-    const isActive = account.charges_enabled && account.payouts_enabled;
-    
-
-    await partner.update({
-        stripeAccountStatus: isActive ? "active" : "pending"
-    });
-
-    return successResponse({
-        res,
-        message: "Stripe status checked",
+        message: "Stripe account created, complete onboarding",
         data: {
-            stripeLinked: isActive,
-            stripeAccountStatus: isActive ? "active" : "pending"
+            stripeLinked: false,
+            stripeAccountStatus: "pending",
+            onboardingRequired: true,
+            onboardingUrl: accountLink.url,
         },
-        status: 200
+        status: 201
     });
 });
 
@@ -197,26 +203,6 @@ const recordBankCheckPayment = asyncWrapper(async (req, res) => {
     });
 });
 
-const updateBankAccountDetails = asyncWrapper(async (req, res) => {
-    const { bankAccountDetails } = req.body;
-
-    if (!bankAccountDetails) {
-        return errorResponse({ res, message: "bankAccountDetails is required", status: 400 });
-    }
-
-    const partner = await LocalPartner.findByPk(req.partner.id);
-    if (!partner) return errorResponse({ res, message: "Partner not found", status: 404 });
-
-    await partner.update({ bankAccountDetails });
-
-    return successResponse({
-        res,
-        message: "Bank account details updated",
-        data: { bankAccountDetails: partner.bankAccountDetails },
-        status: 200
-    });
-});
-
 const handleWebhook = asyncWrapper(async (req, res) => {
     const sig = req.headers["stripe-signature"];
     let event;
@@ -264,7 +250,6 @@ const handleWebhook = asyncWrapper(async (req, res) => {
 });
 
 module.exports = {
-    createConnectAccount, checkConnectStatus,
-    createPaymentIntent, recordBankCheckPayment,
-    refreshOnboardingLink, handleWebhook, updateBankAccountDetails
+    connectOrCheckStripeAccount, createPaymentIntent,
+    recordBankCheckPayment, handleWebhook
 };
