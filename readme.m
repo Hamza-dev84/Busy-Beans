@@ -1,28 +1,87 @@
-{
-    "success": true,
-    "message": "Login successful",
-    "data": {
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiaWF0IjoxNzc5MTkyODkzLCJleHAiOjE3Nzk3OTc2OTN9.ZlnlLVJIX5VmLoB2Yokh8nchD8_kHE9hXFN8f6V9odM",
-        "partner": {
-            "id": 3,
-            "name": "Partner Lahore",
-            "email": "partner@test.com",
-            "stripeLinked": false,
-            "stripeAccountStatus": "pending",
-            "onboardingRequired": true
-        }
-    }
-}
+# Busy Bean Coffee — Backend API
 
-when i hit this api http://localhost:5000/stripe/connect by using above partner token then response is:
-{
-    "success": true,
-    "message": "Stripe account is now active",
-    "data": {
-        "stripeLinked": true,
-        "stripeAccountStatus": "active",
-        "onboardingRequired": false
-    }
-}
+A scalable RESTful API for a coffee e-commerce and partner management platform built with **Node.js, Express.js, MySQL, and Sequelize ORM**.
 
-// and database automatically update the status from pending to active 
+## Tech Stack
+
+* Node.js
+* Express.js
+* MySQL
+* Sequelize ORM
+* JWT Authentication
+* Stripe Payments & Stripe Connect
+* Stripe Financial Connections
+* Multer (File Uploads)
+* Nodemailer (Email Services)
+* Puppeteer (PDF Generation)
+
+## Features
+
+### Authentication & Authorization
+
+* Multi-role authentication (Admin / Customer / Local Partner)
+* JWT-based authentication
+* Role-based access control
+
+### Product & Inventory Management
+
+* Product CRUD operations
+* Product image uploads
+* Inventory management
+* Partner-wise product assignment
+* Custom partner pricing
+
+### Order Management
+
+* Dynamic order pricing (Retail & Wholesale)
+* Multiple order workflows
+* Automated supplier dispatch process
+* Real-time order tracking
+
+#### Order Lifecycle
+
+Order Placed → Dispatched → Supplier Acknowledged → Shipped
+
+### Payments & Profit Distribution
+
+* Stripe Payment Intents integration
+* ACH bank payments via Stripe Financial Connections
+* Stripe Connect payouts (Express & Custom Accounts)
+* Automated partner profit calculations
+* Bank check recording and payment tracking
+
+### Communication & Invoicing
+
+* Automated email notifications
+* Role-based email triggers
+* PDF invoice generation using Puppeteer
+
+### Reporting & Analytics
+
+* Partner profit reports
+* Pagination on all list endpoints
+* Advanced filtering and search functionality
+
+## API Modules
+
+* Authentication
+* Users
+* Products
+* Orders
+* Partners
+* Payments
+* Reports
+
+## Key Highlights
+
+* Scalable REST API architecture
+* Secure JWT authentication
+* Dynamic pricing engine
+* Automated profit distribution system
+* Stripe payment ecosystem integration
+* Advanced order management workflow
+* Production-ready backend structure
+
+## Author
+
+**Muhammad Hamza**
